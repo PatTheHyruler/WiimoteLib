@@ -36,6 +36,7 @@ namespace WiimoteLib
 		// VID = Nintendo, PID = Wiimote
 		private const int VID = 0x057e;
 		private const int PID = 0x0306;
+		private const int PID_WITHMOTIONPLUS = 0x0330;
 
 		// sure, we could find this out the hard way using HID, but trust me, it's 22
 		private const int REPORT_LENGTH = 22;
@@ -136,6 +137,11 @@ namespace WiimoteLib
 				OpenWiimoteDeviceHandle(mDevicePath);
 		}
 
+		private static bool IsWiimote(HIDImports.HIDD_ATTRIBUTES attrib)
+		{
+			return attrib.VendorID == VID && (attrib.ProductID == PID || attrib.ProductID == PID_WITHMOTIONPLUS);
+		}
+
 		internal static void FindWiimote(WiimoteFoundDelegate wiimoteFound)
 		{
 			int index = 0;
@@ -185,7 +191,7 @@ namespace WiimoteLib
 					if(HIDImports.HidD_GetAttributes(mHandle.DangerousGetHandle(), ref attrib))
 					{
 						// if the vendor and product IDs match up
-						if(attrib.VendorID == VID && attrib.ProductID == PID)
+						if(IsWiimote(attrib))
 						{
 							// it's a Wiimote
 							Debug.WriteLine("Found one!");
@@ -239,7 +245,7 @@ namespace WiimoteLib
 			if(HIDImports.HidD_GetAttributes(mHandle.DangerousGetHandle(), ref attrib))
 			{
 				// if the vendor and product IDs match up
-				if(attrib.VendorID == VID && attrib.ProductID == PID)
+				if(IsWiimote(attrib))
 				{
 					// create a nice .NET FileStream wrapping the handle above
 					mStream = new FileStream(mHandle, FileAccess.ReadWrite, REPORT_LENGTH, true);
