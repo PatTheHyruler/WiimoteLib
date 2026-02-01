@@ -13,6 +13,7 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.Windows.Forms;
 using WiimoteLib;
+using System.ComponentModel;
 
 namespace WiimoteTest
 {
@@ -212,7 +213,8 @@ namespace WiimoteTest
 			chkExtension.Checked = args.Inserted;
 		}
 
-		public Wiimote Wiimote
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public Wiimote Wiimote
 		{
 			set { mWiimote = value; }
 		}
