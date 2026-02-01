@@ -525,6 +525,16 @@ namespace WiimoteLib
 			}
 		}
 
+		private void ActivateMotionPlus(MotionPlusPassthroughMode mode = MotionPlusPassthroughMode.None)
+		{
+			WriteData(address: 0x04a600fe, (byte)mode);
+		}
+
+		private void DeactivateMotionPlus()
+		{
+			WriteData(address: 0x04a400f0, 0x55);
+		}
+
 		/// <summary>
 		/// Decrypts data sent from the extension to the Wiimote
 		/// </summary>

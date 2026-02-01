@@ -904,4 +904,11 @@ namespace WiimoteLib
 		/// </summary>
 		GuitarHeroWorldTour
 	}
+
+	public enum MotionPlusPassthroughMode : byte
+	{
+		None = 0x04,
+		Nunchuk = 0x05,
+		ClassicControllerOrMusicalInstrument = 0x07,
+	}
 }
