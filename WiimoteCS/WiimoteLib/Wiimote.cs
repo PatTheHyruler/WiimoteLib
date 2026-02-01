@@ -259,6 +259,9 @@ namespace WiimoteLib
 
 					if(mWiimoteState.Extension != extension)
 					{
+						// Okay, so when we activate MotionPlus, this detects it being connected?
+						// But currently InitializeExtension REGISTER_EXTENSION_TYPE then causes an error with Attempt to read from write-only register
+						// TODO Next steps: see how the status report differs between regular extension and MotionPlus
 						mWiimoteState.Extension = extension;
 
 						if(extension)
@@ -399,11 +402,13 @@ namespace WiimoteLib
 
 		public Task ActivateMotionPlusAsync(MotionPlusPassthroughMode mode, CancellationToken ct)
 		{
+			mWiimoteState.MotionPlusState.IsActivated = true; // TODO: This should be set later, from status report?
 			return WriteDataAsync(address: 0x04a600fe, (byte)mode, ct);
 		}
 
-		private Task DeactivateMotionPlusAsync(CancellationToken ct)
+		public Task DeactivateMotionPlusAsync(CancellationToken ct)
 		{
+			mWiimoteState.MotionPlusState.IsActivated = false; // TODO: This should be set later, from status report?
 			return WriteDataAsync(address: 0x04a400f0, 0x55, ct);
 		}
 
@@ -543,6 +548,35 @@ namespace WiimoteLib
 		/// <param name="buff">Data buffer</param>
 		private void ParseExtension(ReadOnlySpan<byte> buff)
 		{
+			if (mWiimoteState.MotionPlusState.IsActivated)
+			{
+				if (buff.Length < 6)
+				{
+					Console.WriteLine("Buffer too short for MotionPlus");
+					return;
+				}
+
+				var parsedMotionPlus = new
+				{
+					ParsedYawDown = ParseMotionPlusDegreeReport(speed1: buff[0], speed2: buff[3]),
+					ParsedRollLeft = ParseMotionPlusDegreeReport(speed1: buff[1], speed2: buff[4]),
+					ParsedPitchLeft = ParseMotionPlusDegreeReport(speed1: buff[2], speed2: buff[5]),
+					YawDownSpeed = buff[0].ToString("b8"),
+					YawDownSpeed2 = (buff[3] & 0b11111100).ToString("b8"),
+					RollLeftSpeed = buff[1].ToString("b8"),
+					RollLeftSpeed2 = (buff[4] & 0b11111100).ToString("b8"),
+					PitchLeftSpeed = buff[2].ToString("b8"),
+					PitchLeftSpeed2 = (buff[5] & 0b11111100).ToString("b8"),
+					YawSlowMode = (buff[3] & 0b00000010) >> 1,
+					PitchSlowMode = buff[3] & 0b00000001,
+					RollSlowMode = (buff[4] & 0b00000010) >> 1,
+					ExtensionConnected = buff[4] & 0b00000001,
+				};
+				Console.WriteLine(parsedMotionPlus);
+
+				return; // TODO: Handle interleaving with other extensions etc
+			}
+
 			switch(mWiimoteState.ExtensionType)
 			{
 				case ExtensionType.Nunchuk:
@@ -784,6 +818,11 @@ namespace WiimoteLib
 				return 68.0f * ((float)(sensor - mid) / (max - mid)) + 68.0f;
 		}
 
+		private static Int16 ParseMotionPlusDegreeReport(byte speed1, byte speed2)
+		{
+			var rawSpeed = (Int16)((speed2 & 0b11111100) << 6 | speed1);
+			return rawSpeed;
+		}
 
 		/// <summary>
 		/// Parse data returned from a read report
@@ -845,12 +884,42 @@ namespace WiimoteLib
 		}
 
 		/// <summary>
+		/// Set Wiimote reporting mode (if using an IR report type, IR sensitivity is set to WiiLevel3)
+		/// </summary>
+		/// <param name="type">Report type</param>
+		/// <param name="continuous">Continuous data</param>
+		/// <param name="ct"></param>
+		public Task SetReportTypeAsync(InputReport type, bool continuous, CancellationToken ct)
+			=> SetReportTypeAsync(type, IRSensitivity.Maximum, continuous, ct);
+
+		/// <summary>
 		/// Set Wiimote reporting mode
 		/// </summary>
 		/// <param name="type">Report type</param>
 		/// <param name="irSensitivity">IR sensitivity</param>
 		/// <param name="continuous">Continuous data</param>
 		public void SetReportType(InputReport type, IRSensitivity irSensitivity, bool continuous)
+		{
+			PrepareSetReportType(type, irSensitivity, continuous);
+
+			WriteReport();
+		}
+
+		/// <summary>
+		/// Set Wiimote reporting mode
+		/// </summary>
+		/// <param name="type">Report type</param>
+		/// <param name="irSensitivity">IR sensitivity</param>
+		/// <param name="continuous">Continuous data</param>
+		/// <param name="ct"></param>
+		public Task SetReportTypeAsync(InputReport type, IRSensitivity irSensitivity, bool continuous, CancellationToken ct)
+		{
+			PrepareSetReportType(type, irSensitivity, continuous);
+
+			return WriteReportAsync(ct);
+		}
+
+		private void PrepareSetReportType(InputReport type, IRSensitivity irSensitivity, bool continuous)
 		{
 			// only 1 report type allowed for the BB
 			if(mWiimoteState.ExtensionType == ExtensionType.BalanceBoard)
@@ -873,8 +942,6 @@ namespace WiimoteLib
 			mBuff[0] = (byte)OutputReport.Type;
 			mBuff[1] = (byte)((continuous ? 0x04 : 0x00) | (byte)(mWiimoteState.Rumble ? 0x01 : 0x00));
 			mBuff[2] = (byte)type;
-
-			WriteReport();
 		}
 
 		/// <summary>

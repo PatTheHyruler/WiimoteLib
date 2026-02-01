@@ -211,6 +211,9 @@ namespace WiimoteLib
 		[DataMember]
 		public LEDState LEDState;
 
+		[DataMember]
+		public MotionPlusState MotionPlusState;
+
 		/// <summary>
 		/// Constructor for WiimoteState class
 		/// </summary>
@@ -755,6 +758,12 @@ namespace WiimoteLib
 		public bool A, B, Plus, Home, Minus, One, Two, Up, Down, Left, Right;
 	}
 
+	public struct MotionPlusState
+	{
+		[DataMember]
+		public bool IsActivated;
+	}
+
 	/// <summary>
 	/// The extension plugged into the Wiimote
 	/// </summary>
@@ -840,6 +849,7 @@ namespace WiimoteLib
 		/// Button and accelerometer data
 		/// </summary>
 		ButtonsAccel		= 0x31,
+		ButtonsWith8ExtensionBytes = 0x32,
 		/// <summary>
 		/// IR sensor and accelerometer data
 		/// </summary>

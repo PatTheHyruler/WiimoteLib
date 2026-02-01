@@ -1,5 +1,4 @@
-﻿using HidSharp;
-using WiimoteLib2;
+﻿using WiimoteLib;
 
 var cts = new CancellationTokenSource();
 Console.CancelKeyPress += (_, e) =>
@@ -9,18 +8,14 @@ Console.CancelKeyPress += (_, e) =>
 };
 var ct = cts.Token;
 
-var device =
-    DeviceList.Local
-        .GetHidDevices(vendorID: Wiimote.VendorId, productID: Wiimote.ProductId)
-        .Concat(DeviceList.Local.GetHidDevices(vendorID: Wiimote.VendorId, productID: Wiimote.ProductIdWithMotionPlusInside))
-        .First();
+var device = Wiimote.FindWiimoteHidDevices().First();
 
 await using var wiimote = new Wiimote(device);
 wiimote.Connect();
 
-await wiimote.SetReportingModeAsync(ReportingMode.CoreButtonsWith8ExtensionBytes, false, ct);
+await wiimote.SetReportTypeAsync(InputReport.ButtonsWith8ExtensionBytes, false, ct);
 
-async Task ConsoleLoop()
+while (!ct.IsCancellationRequested)
 {
     var key = Console.ReadKey(true);
     if (key.Key == ConsoleKey.M)
@@ -32,7 +27,3 @@ async Task ConsoleLoop()
         await wiimote.DeactivateMotionPlusAsync(ct);
     }
 }
-
-Task.Run(ConsoleLoop, ct);
-
-await wiimote.ContinuouslyReceiveReportsAsync(ct);
