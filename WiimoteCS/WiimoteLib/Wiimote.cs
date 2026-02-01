@@ -8,13 +8,9 @@
 //	for more information
 //////////////////////////////////////////////////////////////////////////////////
 
-using System;
 using System.Runtime.InteropServices;
 using System.Diagnostics;
-using System.IO;
-using System.Runtime.Serialization;
 using Microsoft.Win32.SafeHandles;
-using System.Threading;
 
 namespace WiimoteLib
 {
@@ -26,12 +22,12 @@ namespace WiimoteLib
 		/// <summary>
 		/// Event raised when Wiimote state is changed
 		/// </summary>
-		public event EventHandler<WiimoteChangedEventArgs> WiimoteChanged;
+		public event EventHandler<WiimoteChangedEventArgs>? WiimoteChanged;
 
 		/// <summary>
 		/// Event raised when an extension is inserted or removed
 		/// </summary>
-		public event EventHandler<WiimoteExtensionChangedEventArgs> WiimoteExtensionChanged;
+		public event EventHandler<WiimoteExtensionChangedEventArgs>? WiimoteExtensionChanged;
 
 		// VID = Nintendo, PID = Wiimote
 		private const int VID = 0x057e;
@@ -1295,7 +1291,6 @@ namespace WiimoteLib
 	/// <summary>
 	/// Thrown when no Wiimotes are found in the HID device list
 	/// </summary>
-	[Serializable]
 	public class WiimoteNotFoundException : ApplicationException
 	{
 		/// <summary>
@@ -1321,21 +1316,11 @@ namespace WiimoteLib
 		public WiimoteNotFoundException(string message, Exception innerException) : base(message, innerException)
 		{
 		}
-
-		/// <summary>
-		/// Constructor
-		/// </summary>
-		/// <param name="info">Serialization info</param>
-		/// <param name="context">Streaming context</param>
-		protected WiimoteNotFoundException(SerializationInfo info, StreamingContext context) : base(info, context)
-		{
-		}
 	}
 
 	/// <summary>
 	/// Represents errors that occur during the execution of the Wiimote library
 	/// </summary>
-	[Serializable]
 	public class WiimoteException : ApplicationException
 	{
 		/// <summary>
@@ -1359,15 +1344,6 @@ namespace WiimoteLib
 		/// <param name="message">Error message</param>
 		/// <param name="innerException">Inner exception</param>
 		public WiimoteException(string message, Exception innerException) : base(message, innerException)
-		{
-		}
-
-		/// <summary>
-		/// Constructor
-		/// </summary>
-		/// <param name="info">Serialization info</param>
-		/// <param name="context">Streaming context</param>
-		protected WiimoteException(SerializationInfo info, StreamingContext context) : base(info, context)
 		{
 		}
 	}
