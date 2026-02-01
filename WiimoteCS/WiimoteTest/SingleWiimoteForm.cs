@@ -16,7 +16,7 @@ namespace WiimoteTest
 {
 	public partial class SingleWiimoteForm : Form
 	{
-		Wiimote wm = new Wiimote();
+		Wiimote? wm;
 
 		public SingleWiimoteForm()
 		{
@@ -25,6 +25,9 @@ namespace WiimoteTest
 
 		private void Form1_Load(object sender, EventArgs e)
 		{
+			var hidDevice = Wiimote.FindWiimoteHidDevices().First();
+			wm = new Wiimote(hidDevice);
+
 			wiimoteInfo1.Wiimote = wm;
 
 			wm.WiimoteChanged += wm_WiimoteChanged;
@@ -51,7 +54,7 @@ namespace WiimoteTest
 
 		private void Form1_FormClosing(object sender, FormClosingEventArgs e)
 		{
-			wm.Disconnect();
+			wm?.Disconnect();
 		}
 	}
 }

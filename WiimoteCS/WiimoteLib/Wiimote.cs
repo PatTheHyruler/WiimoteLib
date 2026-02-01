@@ -167,13 +167,13 @@ namespace WiimoteLib
 		/// </summary>
 		private void BeginAsyncRead()
 		{
-			// if the stream is valid and ready
-			if (HidStream.CanRead)
+			if (_hidStream is null || !_hidStream.CanRead)
 			{
-				// setup the read and the callback
-				byte[] buff = new byte[REPORT_LENGTH];
-				HidStream.BeginRead(buff, offset: 0, count: REPORT_LENGTH, OnReadData, buff);
+				return;
 			}
+
+			var buff = new byte[REPORT_LENGTH];
+			_hidStream.BeginRead(buff, offset: 0, count: REPORT_LENGTH, OnReadData, buff);
 		}
 
 		/// <summary>
@@ -189,7 +189,7 @@ namespace WiimoteLib
 
 			try
 			{
-				HidStream.EndRead(ar);
+				_hidStream?.EndRead(ar);
 
 				if (ParseInputReport(buff))
 				{
@@ -394,14 +394,17 @@ namespace WiimoteLib
 			}
 		}
 
-		private void ActivateMotionPlus(MotionPlusPassthroughMode mode = MotionPlusPassthroughMode.None)
+		public Task ActivateMotionPlusAsync(CancellationToken ct)
+			=> ActivateMotionPlusAsync(MotionPlusPassthroughMode.None, ct);
+
+		public Task ActivateMotionPlusAsync(MotionPlusPassthroughMode mode, CancellationToken ct)
 		{
-			WriteData(address: 0x04a600fe, (byte)mode);
+			return WriteDataAsync(address: 0x04a600fe, (byte)mode, ct);
 		}
 
-		private void DeactivateMotionPlus()
+		private Task DeactivateMotionPlusAsync(CancellationToken ct)
 		{
-			WriteData(address: 0x04a400f0, 0x55);
+			return WriteDataAsync(address: 0x04a400f0, 0x55, ct);
 		}
 
 		/// <summary>
@@ -1120,8 +1123,11 @@ namespace WiimoteLib
 		/// <param name="data">Byte to write</param>
 		public void WriteData(int address, byte data)
 		{
-			WriteData(address, 1, new byte[] { data });
+			WriteData(address, 1, [data]);
 		}
+
+		public Task WriteDataAsync(int address, byte data, CancellationToken ct)
+			=> WriteDataAsync(address, 1, [data], ct);
 
 		/// <summary>
 		/// Write a byte array to a specified address
@@ -1129,8 +1135,7 @@ namespace WiimoteLib
 		/// <param name="address">Address to write</param>
 		/// <param name="size">Length of buffer</param>
 		/// <param name="buff">Data buffer</param>
-		
-		public void WriteData(int address, byte size, byte[] buff)
+		public void WriteData(int address, byte size, ReadOnlySpan<byte> buff)
 		{
 			ClearReport();
 
@@ -1140,9 +1145,24 @@ namespace WiimoteLib
 			mBuff[3] = (byte)((address & 0x0000ff00)  >>  8);
 			mBuff[4] = (byte)(address & 0x000000ff);
 			mBuff[5] = size;
-			Array.Copy(buff, 0, mBuff, 6, size);
+			buff.CopyTo(mBuff.AsSpan(6..(6 + size)));
 
 			WriteReport();
+		}
+
+		public Task WriteDataAsync(int address, byte size, ReadOnlySpan<byte> buff, CancellationToken ct)
+		{
+			ClearReport();
+
+			mBuff[0] = (byte)OutputReport.WriteMemory;
+			mBuff[1] = (byte)(((address & 0xff000000) >> 24) | GetRumbleBit());
+			mBuff[2] = (byte)((address & 0x00ff0000)  >> 16);
+			mBuff[3] = (byte)((address & 0x0000ff00)  >>  8);
+			mBuff[4] = (byte)(address & 0x000000ff);
+			mBuff[5] = size;
+			buff.CopyTo(mBuff.AsSpan(6..(6 + size)));
+
+			return WriteReportAsync(ct);
 		}
 
 		/// <summary>
