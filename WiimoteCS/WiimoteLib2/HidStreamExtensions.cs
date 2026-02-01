@@ -99,16 +99,38 @@ public static class HidStreamExtensions
             }
         }
 
-        public async Task SetReportingModeAsync(byte reportingMode, bool continuous, CancellationToken ct)
+        public async Task SetReportingModeAsync(ReportingMode reportingMode, bool continuous, CancellationToken ct)
         {
             var continuousByte = continuous ? (byte)0x04 : (byte)0x00;
             byte[] request = [
                 0x12,
                 continuousByte,
-                reportingMode,
+                (byte)reportingMode,
             ];
             await hidStream.WriteAsync(request, ct);
         }
+
+        public async Task SendReadRequestAsync(Int32 address, bool rumble, UInt16 size, CancellationToken ct)
+        {
+            byte[] request = [
+                (byte)OutputReport.ReadData,
+                // MM
+                (byte)(((address & 0xff000000) >> 24) | GetRumbleBit(rumble)),
+                // FF FF FF
+                (byte)((address & 0x00ff0000) >> 16),
+                (byte)((address & 0x0000ff00) >> 8),
+                (byte)(address & 0x000000ff),
+                // SS SS
+                (byte)((size & 0xff00) >> 8),
+                (byte)(size & 0xff),
+            ];
+            await hidStream.WriteAsync(request, ct);
+        }
+    }
+
+    public static byte GetRumbleBit(bool isRumbling)
+    {
+        return (byte)(isRumbling ? 0x01 : 0x00);
     }
 
     public static void PrintBuffer(this byte[] buff)

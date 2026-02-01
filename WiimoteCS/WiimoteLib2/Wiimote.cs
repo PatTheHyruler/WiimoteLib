@@ -51,7 +51,7 @@ public sealed class Wiimote : IDisposable, IAsyncDisposable
 
     public async Task SetReportingModeAsync(ReportingMode reportingMode, bool continuous, CancellationToken ct)
     {
-        await HidStream.SetReportingModeAsync((byte)reportingMode, continuous, ct);
+        await HidStream.SetReportingModeAsync(reportingMode, continuous, ct);
     }
 
     public async Task ContinuouslyReceiveReportsAsync(CancellationToken ct)
