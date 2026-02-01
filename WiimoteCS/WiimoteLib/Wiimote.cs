@@ -10,6 +10,7 @@
 
 using System.Runtime.InteropServices;
 using System.Diagnostics;
+using HidSharp;
 using Microsoft.Win32.SafeHandles;
 
 namespace WiimoteLib
@@ -17,8 +18,18 @@ namespace WiimoteLib
 	/// <summary>
 	/// Implementation of Wiimote
 	/// </summary>
-	public class Wiimote : IDisposable
+	public class Wiimote : IDisposable, IAsyncDisposable
 	{
+		private readonly HidDevice _hidDevice;
+
+		private HidStream? _hidStream;
+		public HidStream HidStream => _hidStream ?? throw new InvalidOperationException("HidStream is null");
+
+		public Wiimote(HidDevice hidDevice)
+		{
+			_hidDevice = hidDevice;
+		}
+
 		/// <summary>
 		/// Event raised when Wiimote state is changed
 		/// </summary>
@@ -37,18 +48,6 @@ namespace WiimoteLib
 		// sure, we could find this out the hard way using HID, but trust me, it's 22
 		private const int REPORT_LENGTH = 22;
 
-		// Wiimote output commands
-		private enum OutputReport : byte
-		{
-			LEDs			= 0x11,
-			Type			= 0x12,
-			IR				= 0x13,
-			Status			= 0x15,
-			WriteMemory		= 0x16,
-			ReadMemory		= 0x17,
-			IR2				= 0x1a,
-		};
-
 		// Wiimote registers
 		private const int REGISTER_IR				= 0x04b00030;
 		private const int REGISTER_IR_SENSITIVITY_1	= 0x04b00000;
@@ -65,12 +64,6 @@ namespace WiimoteLib
 
 		// width between board sensors
 		private const int BSW = 24;
-
-		// read/write handle to the device
-		private SafeFileHandle mHandle;
-
-		// a pretty .NET stream to read/write from/to
-		private FileStream mStream;
 
 		// report buffer
 		private readonly byte[] mBuff = new byte[REPORT_LENGTH];
@@ -110,27 +103,30 @@ namespace WiimoteLib
 		private const float KG2LB = 2.20462262f;
 
 		/// <summary>
-		/// Default constructor
-		/// </summary>
-		public Wiimote()
-		{
-		}
-
-		internal Wiimote(string devicePath)
-		{
-			mDevicePath = devicePath;
-		}
-
-		/// <summary>
 		/// Connect to the first-found Wiimote
 		/// </summary>
 		/// <exception cref="WiimoteNotFoundException">Wiimote not found in HID device list</exception>
 		public void Connect()
 		{
-			if(string.IsNullOrEmpty(mDevicePath))
-				FindWiimote(WiimoteFound);
-			else
-				OpenWiimoteDeviceHandle(mDevicePath);
+			_hidStream = _hidDevice.Open();
+			_hidStream.ReadTimeout = 10_000;
+			_hidStream.WriteTimeout = 10_000;
+
+			BeginAsyncRead();
+
+			try
+			{
+				ReadWiimoteCalibration();
+			}
+			catch
+			{
+				// if we fail above, try the alternate HID writes
+				mAltWriteMethod = true;
+				ReadWiimoteCalibration();
+			}
+
+			// force a status check to get the state of any extensions plugged in at startup
+			GetStatus();
 		}
 
 		private static bool IsWiimote(HIDImports.HIDD_ATTRIBUTES attrib)
@@ -138,139 +134,11 @@ namespace WiimoteLib
 			return attrib.VendorID == VID && (attrib.ProductID == PID || attrib.ProductID == PID_WITHMOTIONPLUS);
 		}
 
-		internal static void FindWiimote(WiimoteFoundDelegate wiimoteFound)
+		public static IEnumerable<HidDevice> FindWiimoteHidDevices()
 		{
-			int index = 0;
-			bool found = false;
-			Guid guid;
-			SafeFileHandle mHandle;
-
-			// get the GUID of the HID class
-			HIDImports.HidD_GetHidGuid(out guid);
-
-			// get a handle to all devices that are part of the HID class
-			// Fun fact:  DIGCF_PRESENT worked on my machine just fine.  I reinstalled Vista, and now it no longer finds the Wiimote with that parameter enabled...
-			IntPtr hDevInfo = HIDImports.SetupDiGetClassDevs(ref guid, null, IntPtr.Zero, HIDImports.DIGCF_DEVICEINTERFACE);// | HIDImports.DIGCF_PRESENT);
-
-			// create a new interface data struct and initialize its size
-			HIDImports.SP_DEVICE_INTERFACE_DATA diData = new HIDImports.SP_DEVICE_INTERFACE_DATA();
-			diData.cbSize = Marshal.SizeOf(diData);
-
-			// get a device interface to a single device (enumerate all devices)
-			while(HIDImports.SetupDiEnumDeviceInterfaces(hDevInfo, IntPtr.Zero, ref guid, index, ref diData))
-			{
-				UInt32 size;
-
-				// get the buffer size for this device detail instance (returned in the size parameter)
-				HIDImports.SetupDiGetDeviceInterfaceDetail(hDevInfo, ref diData, IntPtr.Zero, 0, out size, IntPtr.Zero);
-
-				// create a detail struct and set its size
-				HIDImports.SP_DEVICE_INTERFACE_DETAIL_DATA diDetail = new HIDImports.SP_DEVICE_INTERFACE_DETAIL_DATA();
-
-				// yeah, yeah...well, see, on Win x86, cbSize must be 5 for some reason.  On x64, apparently 8 is what it wants.
-				// someday I should figure this out.  Thanks to Paul Miller on this...
-				diDetail.cbSize = (uint)(IntPtr.Size == 8 ? 8 : 5);
-
-				// actually get the detail struct
-				if(HIDImports.SetupDiGetDeviceInterfaceDetail(hDevInfo, ref diData, ref diDetail, size, out size, IntPtr.Zero))
-				{
-					Debug.WriteLine(string.Format("{0}: {1} - {2}", index, diDetail.DevicePath, Marshal.GetLastWin32Error()));
-
-					// open a read/write handle to our device using the DevicePath returned
-					mHandle = HIDImports.CreateFile(diDetail.DevicePath, FileAccess.ReadWrite, FileShare.ReadWrite, IntPtr.Zero, FileMode.Open, HIDImports.EFileAttributes.Overlapped, IntPtr.Zero);
-
-					// create an attributes struct and initialize the size
-					HIDImports.HIDD_ATTRIBUTES attrib = new HIDImports.HIDD_ATTRIBUTES();
-					attrib.Size = Marshal.SizeOf(attrib);
-
-					// get the attributes of the current device
-					if(HIDImports.HidD_GetAttributes(mHandle.DangerousGetHandle(), ref attrib))
-					{
-						// if the vendor and product IDs match up
-						if(IsWiimote(attrib))
-						{
-							// it's a Wiimote
-							Debug.WriteLine("Found one!");
-							found = true;
-
-							// fire the callback function...if the callee doesn't care about more Wiimotes, break out
-							if(!wiimoteFound(diDetail.DevicePath))
-								break;
-						}
-					}
-					mHandle.Close();
-				}
-				else
-				{
-					// failed to get the detail struct
-					throw new WiimoteException("SetupDiGetDeviceInterfaceDetail failed on index " + index);
-				}
-
-				// move to the next device
-				index++;
-			}
-
-			// clean up our list
-			HIDImports.SetupDiDestroyDeviceInfoList(hDevInfo);
-
-			// if we didn't find a Wiimote, throw an exception
-			if(!found)
-				throw new WiimoteNotFoundException("No Wiimotes found in HID device list.");
-		}
-
-		private bool WiimoteFound(string devicePath)
-		{
-			mDevicePath = devicePath;
-
-			// if we didn't find a Wiimote, throw an exception
-			OpenWiimoteDeviceHandle(mDevicePath);
-
-			return false;
-		}
-
-		private void OpenWiimoteDeviceHandle(string devicePath)
-		{
-			// open a read/write handle to our device using the DevicePath returned
-			mHandle = HIDImports.CreateFile(devicePath, FileAccess.ReadWrite, FileShare.ReadWrite, IntPtr.Zero, FileMode.Open, HIDImports.EFileAttributes.Overlapped, IntPtr.Zero);
-
-			// create an attributes struct and initialize the size
-			HIDImports.HIDD_ATTRIBUTES attrib = new HIDImports.HIDD_ATTRIBUTES();
-			attrib.Size = Marshal.SizeOf(attrib);
-
-			// get the attributes of the current device
-			if(HIDImports.HidD_GetAttributes(mHandle.DangerousGetHandle(), ref attrib))
-			{
-				// if the vendor and product IDs match up
-				if(IsWiimote(attrib))
-				{
-					// create a nice .NET FileStream wrapping the handle above
-					mStream = new FileStream(mHandle, FileAccess.ReadWrite, REPORT_LENGTH, true);
-
-					// start an async read operation on it
-					BeginAsyncRead();
-
-					// read the calibration info from the controller
-					try
-					{
-						ReadWiimoteCalibration();
-					}
-					catch
-					{
-						// if we fail above, try the alternate HID writes
-						mAltWriteMethod = true;
-						ReadWiimoteCalibration();
-					}
-
-					// force a status check to get the state of any extensions plugged in at startup
-					GetStatus();
-				}
-				else
-				{
-					// otherwise this isn't the controller, so close up the file handle
-					mHandle.Close();				
-					throw new WiimoteException("Attempted to open a non-Wiimote device.");
-				}
-			}
+			return DeviceList.Local
+				.GetHidDevices(vendorID: VID, productID: PID)
+				.Concat(DeviceList.Local.GetHidDevices(vendorID: VID, productID: PID_WITHMOTIONPLUS));
 		}
 
 		/// <summary>
@@ -278,12 +146,20 @@ namespace WiimoteLib
 		/// </summary>
 		public void Disconnect()
 		{
-			// close up the stream and handle
-			if(mStream != null)
-				mStream.Close();
+			_hidStream?.Dispose();
+			_hidStream = null;
+		}
 
-			if(mHandle != null)
-				mHandle.Close();
+		/// <summary>
+		/// Disconnect from the controller and stop reading data from it
+		/// </summary>
+		public async Task DisconnectAsync()
+		{
+			if (_hidStream is not null)
+			{
+				await _hidStream.DisposeAsync();
+				_hidStream = null;
+			}
 		}
 
 		/// <summary>
@@ -292,11 +168,11 @@ namespace WiimoteLib
 		private void BeginAsyncRead()
 		{
 			// if the stream is valid and ready
-			if(mStream != null && mStream.CanRead)
+			if (HidStream.CanRead)
 			{
 				// setup the read and the callback
 				byte[] buff = new byte[REPORT_LENGTH];
-				mStream.BeginRead(buff, 0, REPORT_LENGTH, new AsyncCallback(OnReadData), buff);
+				HidStream.BeginRead(buff, offset: 0, count: REPORT_LENGTH, OnReadData, buff);
 			}
 		}
 
@@ -306,26 +182,23 @@ namespace WiimoteLib
 		/// <param name="ar">State information for the callback</param>
 		private void OnReadData(IAsyncResult ar)
 		{
-			// grab the byte buffer
-			byte[] buff = (byte[])ar.AsyncState;
+			if (ar.AsyncState is not byte[] buff)
+			{
+				throw new InvalidOperationException($"Expected data read callback to be of type byte[], but was {ar.AsyncState?.GetType().FullName ?? "null"}");
+			}
 
 			try
 			{
-				// end the current read
-				mStream.EndRead(ar);
+				HidStream.EndRead(ar);
 
-				// parse it
-				if(ParseInputReport(buff))
+				if (ParseInputReport(buff))
 				{
-					// post an event
-					if(WiimoteChanged != null)
-						WiimoteChanged(this, new WiimoteChangedEventArgs(mWiimoteState));
+					WiimoteChanged?.Invoke(this, new WiimoteChangedEventArgs(mWiimoteState));
 				}
 
-				// start reading again
 				BeginAsyncRead();
 			}
-			catch(OperationCanceledException)
+			catch (OperationCanceledException)
 			{
 				Debug.WriteLine("OperationCanceledException");
 			}
@@ -1160,13 +1033,45 @@ namespace WiimoteLib
 		/// <summary>
 		/// Write a report to the Wiimote
 		/// </summary>
-		private void WriteReport()
+		/// <param name="ct"></param>
+		private async Task WriteReportAsync(CancellationToken ct)
 		{
 			Debug.WriteLine("WriteReport: " + mBuff[0].ToString("x"));
-			if(mAltWriteMethod)
-				HIDImports.HidD_SetOutputReport(this.mHandle.DangerousGetHandle(), mBuff, (uint)mBuff.Length);
-			else if(mStream != null)
-				mStream.Write(mBuff, 0, REPORT_LENGTH);
+			if (mAltWriteMethod)
+			{
+				throw new NotImplementedException("Alternative fallback write method not implemented");
+				// HIDImports.HidD_SetOutputReport(this.mHandle.DangerousGetHandle(), mBuff, (uint)mBuff.Length);
+			}
+			else
+			{
+				await HidStream.WriteAsync(mBuff, ct);
+			}
+
+			if(mBuff[0] == (byte)OutputReport.WriteMemory)
+			{
+				Debug.WriteLine("Wait");
+				if(!mWriteDone.WaitOne(1000, false))
+					Debug.WriteLine("Wait failed");
+				//throw new WiimoteException("Error writing data to Wiimote...is it connected?");
+			}
+		}
+
+		/// <summary>
+		/// Write a report to the Wiimote
+		/// </summary>
+		private void WriteReport()
+		{
+			// TODO: Replace usages of this method with WriteReportAsync
+			Debug.WriteLine("WriteReport: " + mBuff[0].ToString("x"));
+			if (mAltWriteMethod)
+			{
+				throw new NotImplementedException("Alternative fallback write method not implemented");
+				// HIDImports.HidD_SetOutputReport(this.mHandle.DangerousGetHandle(), mBuff, (uint)mBuff.Length);
+			}
+			else
+			{
+				HidStream.Write(mBuff);
+			}
 
 			if(mBuff[0] == (byte)OutputReport.WriteMemory)
 			{
@@ -1264,27 +1169,36 @@ namespace WiimoteLib
 			get { return mDevicePath; }
 		}
 
-		#region IDisposable Members
+		#region IDisposable and IAsyncDisposable Members
 
-		/// <summary>
-		/// Dispose Wiimote
-		/// </summary>
 		public void Dispose()
 		{
 			Dispose(true);
 			GC.SuppressFinalize(this);
 		}
 
-		/// <summary>
-		/// Dispose wiimote
-		/// </summary>
-		/// <param name="disposing">Disposing?</param>
 		protected virtual void Dispose(bool disposing)
 		{
-			// close up our handles
-			if(disposing)
+			if (disposing)
+			{
 				Disconnect();
+			}
 		}
+
+		public async ValueTask DisposeAsync()
+		{
+			await DisposeAsync(true);
+			GC.SuppressFinalize(this);
+		}
+
+		public async ValueTask DisposeAsync(bool disposing)
+		{
+			if (disposing)
+			{
+				await DisconnectAsync();
+			}
+		}
+
 		#endregion
 	}
 

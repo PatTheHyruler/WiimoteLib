@@ -1,6 +1,6 @@
 using HidSharp;
 
-namespace WiimoteLib2;
+namespace WiimoteLib;
 
 public static class HidStreamExtensions
 {
@@ -99,13 +99,13 @@ public static class HidStreamExtensions
             }
         }
 
-        public async Task SetReportingModeAsync(ReportingMode reportingMode, bool continuous, CancellationToken ct)
+        public async Task SetReportingModeAsync(byte reportingMode, bool continuous, CancellationToken ct)
         {
             var continuousByte = continuous ? (byte)0x04 : (byte)0x00;
             byte[] request = [
                 0x12,
                 continuousByte,
-                (byte)reportingMode,
+                reportingMode,
             ];
             await hidStream.WriteAsync(request, ct);
         }
@@ -113,7 +113,7 @@ public static class HidStreamExtensions
         public async Task SendReadRequestAsync(Int32 address, bool rumble, UInt16 size, CancellationToken ct)
         {
             byte[] request = [
-                (byte)OutputReport.ReadData,
+                (byte)OutputReport.ReadMemory,
                 // MM
                 (byte)(((address & 0xff000000) >> 24) | GetRumbleBit(rumble)),
                 // FF FF FF

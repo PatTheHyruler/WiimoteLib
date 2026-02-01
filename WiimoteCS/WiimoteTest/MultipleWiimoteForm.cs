@@ -9,7 +9,7 @@ namespace WiimoteTest
 	{
 		// map a wiimote to a specific state user control dealie
 		Dictionary<Guid,WiimoteInfo> mWiimoteMap = new Dictionary<Guid,WiimoteInfo>();
-		WiimoteCollection mWC;
+		public List<Wiimote> mWC = [];
 
 		public MultipleWiimoteForm()
 		{
@@ -19,12 +19,11 @@ namespace WiimoteTest
 		private void MultipleWiimoteForm_Load(object sender, EventArgs e)
 		{
 			// find all wiimotes connected to the system
-			mWC = new WiimoteCollection();
 			int index = 1;
 
 			try
 			{
-				mWC.FindAllWiimotes();
+				mWC = Wiimote.FindWiimoteHidDevices().Select(static hidDevice => new Wiimote(hidDevice)).ToList();
 			}
 			catch(WiimoteNotFoundException ex)
 			{

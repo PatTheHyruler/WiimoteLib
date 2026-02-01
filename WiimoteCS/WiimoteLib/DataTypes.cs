@@ -858,6 +858,17 @@ namespace WiimoteLib
 		IRExtensionAccel	= 0x37,
 	};
 
+	public enum OutputReport : byte
+	{
+		LEDs			= 0x11,
+		Type			= 0x12,
+		IR				= 0x13,
+		Status			= 0x15,
+		WriteMemory		= 0x16,
+		ReadMemory		= 0x17,
+		IR2				= 0x1a,
+	};
+
 	/// <summary>
 	/// Sensitivity of the IR camera on the Wiimote
 	/// </summary>
