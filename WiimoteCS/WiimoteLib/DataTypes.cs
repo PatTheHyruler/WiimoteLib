@@ -761,7 +761,15 @@ namespace WiimoteLib
 	public struct MotionPlusState
 	{
 		[DataMember]
-		public bool IsActivated;
+		public MotionPlusStatus Status;
+	}
+
+	public enum MotionPlusStatus
+	{
+		None,
+		ActivationRequested,
+		Activated,
+		DeactivationRequested,
 	}
 
 	/// <summary>

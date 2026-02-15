@@ -68,20 +68,15 @@ namespace WiimoteLib
 		// report buffer
 		private readonly byte[] mBuff = new byte[REPORT_LENGTH];
 
-		// read data buffer
-		private byte[] mReadBuff;
-
-		// address to read from
-		private int mAddress;
-
-		// size of requested read
-		private short mSize;
-
 		// current state of controller
 		private readonly WiimoteState mWiimoteState = new WiimoteState();
 
-		// event for read data processing
-		private readonly AutoResetEvent mReadDone = new AutoResetEvent(false);
+		// data read fields
+		private TaskCompletionSource<byte[]>? dataReadTaskCompletionSource;
+		private byte[] dataReadResultBuffer;
+		private short dataReadRequestedSize;
+		private int dataReadAddress;
+
 		private readonly AutoResetEvent mWriteDone = new AutoResetEvent(false);
 
 		// event for status report
@@ -102,12 +97,16 @@ namespace WiimoteLib
 		// kilograms to pounds
 		private const float KG2LB = 2.20462262f;
 
+		private CancellationToken _continuousReadCancellationToken = CancellationToken.None;
+
 		/// <summary>
 		/// Connect to the first-found Wiimote
 		/// </summary>
 		/// <exception cref="WiimoteNotFoundException">Wiimote not found in HID device list</exception>
-		public void Connect()
+		public void Connect(CancellationToken ct = default)
 		{
+			_continuousReadCancellationToken = ct;
+
 			_hidStream = _hidDevice.Open();
 			_hidStream.ReadTimeout = 10_000;
 			_hidStream.WriteTimeout = 10_000;
@@ -120,6 +119,7 @@ namespace WiimoteLib
 			}
 			catch
 			{
+				throw; // TODO: Support the alternative write method?
 				// if we fail above, try the alternate HID writes
 				mAltWriteMethod = true;
 				ReadWiimoteCalibration();
@@ -167,7 +167,7 @@ namespace WiimoteLib
 		/// </summary>
 		private void BeginAsyncRead()
 		{
-			if (_hidStream is null || !_hidStream.CanRead)
+			if (_hidStream is null || !_hidStream.CanRead || _continuousReadCancellationToken.IsCancellationRequested)
 			{
 				return;
 			}
@@ -222,6 +222,10 @@ namespace WiimoteLib
 					ParseButtons(buff);
 					ParseAccel(buff);
 					break;
+				case InputReport.ButtonsWith8ExtensionBytes:
+					ParseButtons(buff);
+					ParseExtension(buff, 3);
+					break;
 				case InputReport.IRAccel:
 					ParseButtons(buff);
 					ParseAccel(buff);
@@ -257,24 +261,41 @@ namespace WiimoteLib
 					bool extension = (buff[3] & 0x02) != 0;
 					Debug.WriteLine("Extension: " + extension);
 
-					if(mWiimoteState.Extension != extension)
+					if (mWiimoteState.Extension != extension)
 					{
-						// Okay, so when we activate MotionPlus, this detects it being connected?
-						// But currently InitializeExtension REGISTER_EXTENSION_TYPE then causes an error with Attempt to read from write-only register
-						// TODO Next steps: see how the status report differs between regular extension and MotionPlus
 						mWiimoteState.Extension = extension;
 
-						if(extension)
+						if (extension)
 						{
 							BeginAsyncRead();
-							InitializeExtension();
+							try
+							{
+								InitializeExtension();
+							}
+							catch (WiimoteReadDataException ex)
+								when (ex.ErrorType == DataReadErrorType.ReadFromWriteOnlyRegister &&
+								      mWiimoteState.MotionPlusState.Status is
+									      MotionPlusStatus.Activated or MotionPlusStatus.ActivationRequested)
+							{
+								// After MotionPlus is activated, an "extension connected" report is sent, which is what we're handling here.
+								// According to WiiBrew, "The standard extension identifier at 0x(4)A400FA now reads 00 00 A4 20 04 05"
+								// But at least with my Wiimote, it instead returns error 7.
+								// I also can't skip attempting to initialize a regular extension after MotionPlus was activated,
+								// because this could also be a real "extension connected" event.
+								// So, we ignore it.
+							}
 						}
 						else
+						{
 							mWiimoteState.ExtensionType = ExtensionType.None;
+						}
 
 						// only fire the extension changed event if we have a real extension (i.e. not a balance board)
-						if(WiimoteExtensionChanged != null && mWiimoteState.ExtensionType != ExtensionType.BalanceBoard)
+						if (WiimoteExtensionChanged != null &&
+						    mWiimoteState.ExtensionType != ExtensionType.BalanceBoard)
+						{
 							WiimoteExtensionChanged(this, new WiimoteExtensionChangedEventArgs(mWiimoteState.ExtensionType, mWiimoteState.Extension));
+						}
 					}
 					mStatusDone.Set();
 					break;
@@ -402,13 +423,13 @@ namespace WiimoteLib
 
 		public Task ActivateMotionPlusAsync(MotionPlusPassthroughMode mode, CancellationToken ct)
 		{
-			mWiimoteState.MotionPlusState.IsActivated = true; // TODO: This should be set later, from status report?
+			mWiimoteState.MotionPlusState.Status = MotionPlusStatus.Activated; // TODO: This should be set later, from status report?
 			return WriteDataAsync(address: 0x04a600fe, (byte)mode, ct);
 		}
 
 		public Task DeactivateMotionPlusAsync(CancellationToken ct)
 		{
-			mWiimoteState.MotionPlusState.IsActivated = false; // TODO: This should be set later, from status report?
+			mWiimoteState.MotionPlusState.Status = MotionPlusStatus.None; // TODO: This should be set later, from status report?
 			return WriteDataAsync(address: 0x04a400f0, 0x55, ct);
 		}
 
@@ -454,7 +475,7 @@ namespace WiimoteLib
 			mWiimoteState.AccelState.RawValues.Y = buff[4];
 			mWiimoteState.AccelState.RawValues.Z = buff[5];
 
-			mWiimoteState.AccelState.Values.X = (float)((float)mWiimoteState.AccelState.RawValues.X - ((int)mWiimoteState.AccelCalibrationInfo.X0)) / 
+			mWiimoteState.AccelState.Values.X = (float)((float)mWiimoteState.AccelState.RawValues.X - ((int)mWiimoteState.AccelCalibrationInfo.X0)) /
 											((float)mWiimoteState.AccelCalibrationInfo.XG - ((int)mWiimoteState.AccelCalibrationInfo.X0));
 			mWiimoteState.AccelState.Values.Y = (float)((float)mWiimoteState.AccelState.RawValues.Y - mWiimoteState.AccelCalibrationInfo.Y0) /
 											((float)mWiimoteState.AccelCalibrationInfo.YG - mWiimoteState.AccelCalibrationInfo.Y0);
@@ -527,7 +548,7 @@ namespace WiimoteLib
 			{
 				mWiimoteState.IRState.RawMidpoint.X = (mWiimoteState.IRState.IRSensors[1].RawPosition.X + mWiimoteState.IRState.IRSensors[0].RawPosition.X) / 2;
 				mWiimoteState.IRState.RawMidpoint.Y = (mWiimoteState.IRState.IRSensors[1].RawPosition.Y + mWiimoteState.IRState.IRSensors[0].RawPosition.Y) / 2;
-		
+
 				mWiimoteState.IRState.Midpoint.X = (mWiimoteState.IRState.IRSensors[1].Position.X + mWiimoteState.IRState.IRSensors[0].Position.X) / 2.0f;
 				mWiimoteState.IRState.Midpoint.Y = (mWiimoteState.IRState.IRSensors[1].Position.Y + mWiimoteState.IRState.IRSensors[0].Position.Y) / 2.0f;
 			}
@@ -548,7 +569,7 @@ namespace WiimoteLib
 		/// <param name="buff">Data buffer</param>
 		private void ParseExtension(ReadOnlySpan<byte> buff)
 		{
-			if (mWiimoteState.MotionPlusState.IsActivated)
+			if (mWiimoteState.MotionPlusState.Status == MotionPlusStatus.Activated)
 			{
 				if (buff.Length < 6)
 				{
@@ -561,12 +582,12 @@ namespace WiimoteLib
 					ParsedYawDown = ParseMotionPlusDegreeReport(speed1: buff[0], speed2: buff[3]),
 					ParsedRollLeft = ParseMotionPlusDegreeReport(speed1: buff[1], speed2: buff[4]),
 					ParsedPitchLeft = ParseMotionPlusDegreeReport(speed1: buff[2], speed2: buff[5]),
-					YawDownSpeed = buff[0].ToString("b8"),
-					YawDownSpeed2 = (buff[3] & 0b11111100).ToString("b8"),
-					RollLeftSpeed = buff[1].ToString("b8"),
-					RollLeftSpeed2 = (buff[4] & 0b11111100).ToString("b8"),
-					PitchLeftSpeed = buff[2].ToString("b8"),
-					PitchLeftSpeed2 = (buff[5] & 0b11111100).ToString("b8"),
+					// YawDownSpeed = buff[0].ToString("b8"),
+					// YawDownSpeed2 = (buff[3] & 0b11111100).ToString("b8"),
+					// RollLeftSpeed = buff[1].ToString("b8"),
+					// RollLeftSpeed2 = (buff[4] & 0b11111100).ToString("b8"),
+					// PitchLeftSpeed = buff[2].ToString("b8"),
+					// PitchLeftSpeed2 = (buff[5] & 0b11111100).ToString("b8"),
 					YawSlowMode = (buff[3] & 0b00000010) >> 1,
 					PitchSlowMode = buff[3] & 0b00000001,
 					RollSlowMode = (buff[4] & 0b00000010) >> 1,
@@ -589,7 +610,7 @@ namespace WiimoteLib
 					mWiimoteState.NunchukState.C = (buff[5] & 0x02) == 0;
 					mWiimoteState.NunchukState.Z = (buff[5] & 0x01) == 0;
 
-					mWiimoteState.NunchukState.AccelState.Values.X = (float)((float)mWiimoteState.NunchukState.AccelState.RawValues.X - mWiimoteState.NunchukState.CalibrationInfo.AccelCalibration.X0) / 
+					mWiimoteState.NunchukState.AccelState.Values.X = (float)((float)mWiimoteState.NunchukState.AccelState.RawValues.X - mWiimoteState.NunchukState.CalibrationInfo.AccelCalibration.X0) /
 													((float)mWiimoteState.NunchukState.CalibrationInfo.AccelCalibration.XG - mWiimoteState.NunchukState.CalibrationInfo.AccelCalibration.X0);
 					mWiimoteState.NunchukState.AccelState.Values.Y = (float)((float)mWiimoteState.NunchukState.AccelState.RawValues.Y - mWiimoteState.NunchukState.CalibrationInfo.AccelCalibration.Y0) /
 													((float)mWiimoteState.NunchukState.CalibrationInfo.AccelCalibration.YG - mWiimoteState.NunchukState.CalibrationInfo.AccelCalibration.Y0);
@@ -597,11 +618,11 @@ namespace WiimoteLib
 													((float)mWiimoteState.NunchukState.CalibrationInfo.AccelCalibration.ZG - mWiimoteState.NunchukState.CalibrationInfo.AccelCalibration.Z0);
 
 					if(mWiimoteState.NunchukState.CalibrationInfo.MaxX != 0x00)
-						mWiimoteState.NunchukState.Joystick.X = (float)((float)mWiimoteState.NunchukState.RawJoystick.X - mWiimoteState.NunchukState.CalibrationInfo.MidX) / 
+						mWiimoteState.NunchukState.Joystick.X = (float)((float)mWiimoteState.NunchukState.RawJoystick.X - mWiimoteState.NunchukState.CalibrationInfo.MidX) /
 												((float)mWiimoteState.NunchukState.CalibrationInfo.MaxX - mWiimoteState.NunchukState.CalibrationInfo.MinX);
 
 					if(mWiimoteState.NunchukState.CalibrationInfo.MaxY != 0x00)
-						mWiimoteState.NunchukState.Joystick.Y = (float)((float)mWiimoteState.NunchukState.RawJoystick.Y - mWiimoteState.NunchukState.CalibrationInfo.MidY) / 
+						mWiimoteState.NunchukState.Joystick.Y = (float)((float)mWiimoteState.NunchukState.RawJoystick.Y - mWiimoteState.NunchukState.CalibrationInfo.MidY) /
 												((float)mWiimoteState.NunchukState.CalibrationInfo.MaxY - mWiimoteState.NunchukState.CalibrationInfo.MinY);
 
 					break;
@@ -633,27 +654,27 @@ namespace WiimoteLib
 					mWiimoteState.ClassicControllerState.ButtonState.ZL			= (buff[5] & 0x80) == 0;
 
 					if(mWiimoteState.ClassicControllerState.CalibrationInfo.MaxXL != 0x00)
-						mWiimoteState.ClassicControllerState.JoystickL.X = (float)((float)mWiimoteState.ClassicControllerState.RawJoystickL.X - mWiimoteState.ClassicControllerState.CalibrationInfo.MidXL) / 
+						mWiimoteState.ClassicControllerState.JoystickL.X = (float)((float)mWiimoteState.ClassicControllerState.RawJoystickL.X - mWiimoteState.ClassicControllerState.CalibrationInfo.MidXL) /
 						(float)(mWiimoteState.ClassicControllerState.CalibrationInfo.MaxXL - mWiimoteState.ClassicControllerState.CalibrationInfo.MinXL);
 
 					if(mWiimoteState.ClassicControllerState.CalibrationInfo.MaxYL != 0x00)
-						mWiimoteState.ClassicControllerState.JoystickL.Y = (float)((float)mWiimoteState.ClassicControllerState.RawJoystickL.Y - mWiimoteState.ClassicControllerState.CalibrationInfo.MidYL) / 
+						mWiimoteState.ClassicControllerState.JoystickL.Y = (float)((float)mWiimoteState.ClassicControllerState.RawJoystickL.Y - mWiimoteState.ClassicControllerState.CalibrationInfo.MidYL) /
 						(float)(mWiimoteState.ClassicControllerState.CalibrationInfo.MaxYL - mWiimoteState.ClassicControllerState.CalibrationInfo.MinYL);
 
 					if(mWiimoteState.ClassicControllerState.CalibrationInfo.MaxXR != 0x00)
-						mWiimoteState.ClassicControllerState.JoystickR.X = (float)((float)mWiimoteState.ClassicControllerState.RawJoystickR.X - mWiimoteState.ClassicControllerState.CalibrationInfo.MidXR) / 
+						mWiimoteState.ClassicControllerState.JoystickR.X = (float)((float)mWiimoteState.ClassicControllerState.RawJoystickR.X - mWiimoteState.ClassicControllerState.CalibrationInfo.MidXR) /
 						(float)(mWiimoteState.ClassicControllerState.CalibrationInfo.MaxXR - mWiimoteState.ClassicControllerState.CalibrationInfo.MinXR);
 
 					if(mWiimoteState.ClassicControllerState.CalibrationInfo.MaxYR != 0x00)
-						mWiimoteState.ClassicControllerState.JoystickR.Y = (float)((float)mWiimoteState.ClassicControllerState.RawJoystickR.Y - mWiimoteState.ClassicControllerState.CalibrationInfo.MidYR) / 
+						mWiimoteState.ClassicControllerState.JoystickR.Y = (float)((float)mWiimoteState.ClassicControllerState.RawJoystickR.Y - mWiimoteState.ClassicControllerState.CalibrationInfo.MidYR) /
 						(float)(mWiimoteState.ClassicControllerState.CalibrationInfo.MaxYR - mWiimoteState.ClassicControllerState.CalibrationInfo.MinYR);
 
 					if(mWiimoteState.ClassicControllerState.CalibrationInfo.MaxTriggerL != 0x00)
-						mWiimoteState.ClassicControllerState.TriggerL = (mWiimoteState.ClassicControllerState.RawTriggerL) / 
+						mWiimoteState.ClassicControllerState.TriggerL = (mWiimoteState.ClassicControllerState.RawTriggerL) /
 						(float)(mWiimoteState.ClassicControllerState.CalibrationInfo.MaxTriggerL - mWiimoteState.ClassicControllerState.CalibrationInfo.MinTriggerL);
 
 					if(mWiimoteState.ClassicControllerState.CalibrationInfo.MaxTriggerR != 0x00)
-						mWiimoteState.ClassicControllerState.TriggerR = (mWiimoteState.ClassicControllerState.RawTriggerR) / 
+						mWiimoteState.ClassicControllerState.TriggerR = (mWiimoteState.ClassicControllerState.RawTriggerR) /
 						(float)(mWiimoteState.ClassicControllerState.CalibrationInfo.MaxTriggerR - mWiimoteState.ClassicControllerState.CalibrationInfo.MinTriggerR);
 					break;
 
@@ -830,22 +851,52 @@ namespace WiimoteLib
 		/// <param name="buff">Data buffer</param>
 		private void ParseReadData(byte[] buff)
 		{
-			if((buff[3] & 0x08) != 0)
-				throw new WiimoteException("Error reading data from Wiimote: Bytes do not exist.");
+			if (dataReadTaskCompletionSource is null ||
+			    dataReadTaskCompletionSource.Task.IsCanceled ||
+			    dataReadTaskCompletionSource.Task.IsFaulted ||
+			    dataReadTaskCompletionSource.Task.IsCompleted)
+			{
+				return;
+			}
 
-			if((buff[3] & 0x07) != 0)
-				throw new WiimoteException("Error reading data from Wiimote: Attempt to read from write-only registers.");
+			var errorFlag = buff[3] & 0b1111;
+
+			switch (errorFlag)
+			{
+				case 0:
+					break;
+				case 8:
+					dataReadTaskCompletionSource.SetException(new WiimoteReadDataException(
+						DataReadErrorType.NonExistentMemoryAddress,
+						"Error reading data from Wiimote: Bytes do not exist.",
+						failureReasonBuffer: buff));
+					return;
+				case 7:
+					dataReadTaskCompletionSource.SetException(new WiimoteReadDataException(
+						DataReadErrorType.ReadFromWriteOnlyRegister,
+						"Error reading data from Wiimote: Attempt to read from a write-only register or an extension that is not connected.",
+						failureReasonBuffer: buff));
+					return;
+				default:
+					dataReadTaskCompletionSource.SetException(new WiimoteReadDataException(
+						(DataReadErrorType)errorFlag,
+						"Error reading data from Wiimote: Unknown error.",
+						failureReasonBuffer: buff));
+					return;
+			}
 
 			// get our size and offset from the report
 			int size = (buff[3] >> 4) + 1;
 			int offset = (buff[4] << 8 | buff[5]);
 
 			// add it to the buffer
-			Array.Copy(buff, 6, mReadBuff, offset - mAddress, size);
+			Array.Copy(buff, 6, dataReadResultBuffer, offset - dataReadAddress, size);
 
 			// if we've read it all, set the event
-			if(mAddress + mSize == offset + size)
-				mReadDone.Set();
+			if (dataReadAddress + dataReadRequestedSize == offset + size)
+			{
+				dataReadTaskCompletionSource.SetResult(dataReadResultBuffer);
+			}
 		}
 
 		/// <summary>
@@ -1004,7 +1055,7 @@ namespace WiimoteLib
 			mWiimoteState.Rumble = on;
 
 			// the LED report also handles rumble
-			SetLEDs(mWiimoteState.LEDState.LED1, 
+			SetLEDs(mWiimoteState.LEDState.LED1,
 					mWiimoteState.LEDState.LED2,
 					mWiimoteState.LEDState.LED3,
 					mWiimoteState.LEDState.LED4);
@@ -1163,14 +1214,35 @@ namespace WiimoteLib
 		/// </summary>
 		/// <param name="address">Address to read</param>
 		/// <param name="size">Length to read</param>
+		/// <param name="ct">Cancellation token</param>
+		/// <exception cref="InvalidOperationException">Another read data operation is already ongoing.</exception>
+		/// <exception cref="WiimoteReadDataException">Data read failed.</exception>
 		/// <returns>Data buffer</returns>
-		public byte[] ReadData(int address, short size)
+		public byte[] ReadData(int address, short size, CancellationToken ct = default)
+			=> ReadDataAsync(address, size, ct).GetAwaiter().GetResult();
+
+		/// <summary>
+		/// Read data or register from Wiimote
+		/// </summary>
+		/// <param name="address">Address to read</param>
+		/// <param name="size">Length to read</param>
+		/// <param name="ct">Cancellation token</param>
+		/// <exception cref="InvalidOperationException">Another read data operation is already ongoing.</exception>
+		/// <exception cref="WiimoteReadDataException">Data read failed.</exception>
+		/// <returns>Data buffer</returns>
+		public async Task<byte[]> ReadDataAsync(int address, short size, CancellationToken ct = default)
 		{
+			var previousCompletionSource = Interlocked.CompareExchange(ref dataReadTaskCompletionSource, new(), null);
+			if (previousCompletionSource is not null)
+			{
+				throw new InvalidOperationException("Can't read data while a previous data read is ongoing");
+			}
+
 			ClearReport();
 
-			mReadBuff = new byte[size];
-			mAddress = address & 0xffff;
-			mSize = size;
+			dataReadResultBuffer = new byte[size];
+			dataReadAddress = address & 0xffff;
+			dataReadRequestedSize = size;
 
 			mBuff[0] = (byte)OutputReport.ReadMemory;
 			mBuff[1] = (byte)(((address & 0xff000000) >> 24) | GetRumbleBit());
@@ -1181,12 +1253,16 @@ namespace WiimoteLib
 			mBuff[5] = (byte)((size & 0xff00) >> 8);
 			mBuff[6] = (byte)(size & 0xff);
 
-			WriteReport();
+			await WriteReportAsync(ct);
 
-			if(!mReadDone.WaitOne(1000, false))
-				throw new WiimoteException("Error reading data from Wiimote...is it connected?");
-
-			return mReadBuff;
+			try
+			{
+				return await dataReadTaskCompletionSource.Task;
+			}
+			finally
+			{
+				dataReadTaskCompletionSource = null;
+			}
 		}
 
 		/// <summary>
@@ -1241,26 +1317,17 @@ namespace WiimoteLib
 		/// <summary>
 		/// Current Wiimote state
 		/// </summary>
-		public WiimoteState WiimoteState
-		{
-			get { return mWiimoteState; }
-		}
+		public WiimoteState WiimoteState => mWiimoteState;
 
 		///<summary>
 		/// Unique identifier for this Wiimote (not persisted across application instances)
 		///</summary>
-		public Guid ID
-		{
-			get { return mID; }
-		}
+		public Guid ID => mID;
 
 		/// <summary>
 		/// HID device path for this Wiimote (valid until Wiimote is disconnected)
 		/// </summary>
-		public string HIDDevicePath
-		{
-			get { return mDevicePath; }
-		}
+		public string HIDDevicePath => mDevicePath;
 
 		#region IDisposable and IAsyncDisposable Members
 
