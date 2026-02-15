@@ -268,22 +268,7 @@ namespace WiimoteLib
 						if (extension)
 						{
 							BeginAsyncRead();
-							try
-							{
-								InitializeExtension();
-							}
-							catch (WiimoteReadDataException ex)
-								when (ex.ErrorType == DataReadErrorType.ReadFromWriteOnlyRegister &&
-								      mWiimoteState.MotionPlusState.Status is
-									      MotionPlusStatus.Activated or MotionPlusStatus.ActivationRequested)
-							{
-								// After MotionPlus is activated, an "extension connected" report is sent, which is what we're handling here.
-								// According to WiiBrew, "The standard extension identifier at 0x(4)A400FA now reads 00 00 A4 20 04 05"
-								// But at least with my Wiimote, it instead returns error 7.
-								// I also can't skip attempting to initialize a regular extension after MotionPlus was activated,
-								// because this could also be a real "extension connected" event.
-								// So, we ignore it.
-							}
+							InitializeExtension();
 						}
 						else
 						{
@@ -320,6 +305,22 @@ namespace WiimoteLib
 		/// </summary>
 		private void InitializeExtension()
 		{
+			// TODO: Avoid this weird split initialization logic
+			// TODO: Handle MotionPlus + other extension
+			if (mWiimoteState.MotionPlusState.Status is
+			    MotionPlusStatus.Activated or MotionPlusStatus.ActivationRequested)
+			{
+				var extensionIdentifierBuffer = ReadData(REGISTER_EXTENSION_TYPE, 6);
+				var extensionType = ((long)extensionIdentifierBuffer[0] << 40) | ((long)extensionIdentifierBuffer[1] << 32) |
+				                    ((long)extensionIdentifierBuffer[2]) << 24 | ((long)extensionIdentifierBuffer[3]) << 16 |
+				                    ((long)extensionIdentifierBuffer[4]) << 8 | extensionIdentifierBuffer[5];
+				if ((ExtensionType)extensionType is ExtensionType.MotionPlus)
+				{
+					mWiimoteState.ExtensionType = ExtensionType.MotionPlus;
+				}
+				return;
+			}
+
 			WriteData(REGISTER_EXTENSION_INIT_1, 0x55);
 			WriteData(REGISTER_EXTENSION_INIT_2, 0x00);
 

@@ -803,6 +803,13 @@ namespace WiimoteLib
 		/// </summary>
 		BalanceBoard		= 0x0000a4200402,
 		/// <summary>
+		/// Wii MotionPlus
+		/// </summary>
+		/// <remarks>
+		/// This can be active simultaneously with other extensions and is handled separately.
+		/// </remarks>
+		MotionPlus          = 0x0000a4200405,
+		/// <summary>
 		/// Partially inserted extension.  This is an error condition.
 		/// </summary>
 		ParitallyInserted	= 0xffffffffffff
