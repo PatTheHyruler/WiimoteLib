@@ -812,7 +812,7 @@ namespace WiimoteLib
 		/// <summary>
 		/// Partially inserted extension.  This is an error condition.
 		/// </summary>
-		ParitallyInserted	= 0xffffffffffff
+		PartiallyInserted	= 0xffffffffffff,
 	};
 
 	/// <summary>

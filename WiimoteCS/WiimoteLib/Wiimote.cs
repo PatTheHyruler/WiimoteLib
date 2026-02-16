@@ -333,7 +333,7 @@ namespace WiimoteLib
 			switch((ExtensionType)type)
 			{
 				case ExtensionType.None:
-				case ExtensionType.ParitallyInserted:
+				case ExtensionType.PartiallyInserted:
 					mWiimoteState.Extension = false;
 					mWiimoteState.ExtensionType = ExtensionType.None;
 					return;
