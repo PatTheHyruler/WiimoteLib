@@ -339,11 +339,8 @@ namespace WiimoteLib
 			if (mWiimoteState.MotionPlusState.Status is
 			    MotionPlusStatus.Activated or MotionPlusStatus.ActivationRequested)
 			{
-				var extensionIdentifierBuffer = await ReadDataAsync(REGISTER_EXTENSION_TYPE, 6, ct);
-				var extensionType = ((long)extensionIdentifierBuffer[0] << 40) | ((long)extensionIdentifierBuffer[1] << 32) |
-				                    ((long)extensionIdentifierBuffer[2]) << 24 | ((long)extensionIdentifierBuffer[3]) << 16 |
-				                    ((long)extensionIdentifierBuffer[4]) << 8 | extensionIdentifierBuffer[5];
-				if ((ExtensionType)extensionType is ExtensionType.MotionPlus)
+				var extensionTypeInner = await ReadExtensionTypeAsync(ct);
+				if (extensionTypeInner is ExtensionType.MotionPlus)
 				{
 					mWiimoteState.ExtensionType = ExtensionType.MotionPlus;
 				}
@@ -354,12 +351,11 @@ namespace WiimoteLib
 			await WriteDataAsync(REGISTER_EXTENSION_INIT_2, 0x00, ct);
 
 			// start reading again
+			// TODO: Is this necessary?
 			BeginAsyncRead();
 
-			byte[] buff = await ReadDataAsync(REGISTER_EXTENSION_TYPE, 6, ct);
-			long type = ((long)buff[0] << 40) | ((long)buff[1] << 32) | ((long)buff[2]) << 24 | ((long)buff[3]) << 16 | ((long)buff[4]) << 8 | buff[5];
-
-			switch((ExtensionType)type)
+			var extensionType = await ReadExtensionTypeAsync(ct);
+			switch(extensionType)
 			{
 				case ExtensionType.None:
 				case ExtensionType.PartiallyInserted:
@@ -371,13 +367,14 @@ namespace WiimoteLib
 				case ExtensionType.Guitar:
 				case ExtensionType.BalanceBoard:
 				case ExtensionType.Drums:
-					mWiimoteState.ExtensionType = (ExtensionType)type;
+					mWiimoteState.ExtensionType = extensionType;
 					await SetReportTypeAsync(InputReport.ButtonsExtension, true, ct);
 					break;
 				default:
-					throw new WiimoteException("Unknown extension controller found: " + type.ToString("x"));
+					throw new WiimoteException("Unknown extension controller found: " + extensionType.ToString("x"));
 			}
 
+			byte[] buff;
 			switch(mWiimoteState.ExtensionType)
 			{
 				case ExtensionType.Nunchuk:
@@ -446,6 +443,20 @@ namespace WiimoteLib
 					mWiimoteState.BalanceBoardState.CalibrationInfo.Kg34.BottomLeft =	(short)((short)buff[26] << 8 | buff[27]);
 					break;
 			}
+		}
+
+		private async Task<ExtensionType> ReadExtensionTypeAsync(CancellationToken ct)
+		{
+			var buff = await ReadDataAsync(REGISTER_EXTENSION_TYPE, 6, ct);
+			return ParseExtensionType(buff);
+		}
+
+		private static ExtensionType ParseExtensionType(ReadOnlySpan<byte> buff)
+		{
+			long rawType = ((long)buff[0] << 40) | ((long)buff[1] << 32) |
+			               ((long)buff[2]) << 24 | ((long)buff[3]) << 16 |
+			               ((long)buff[4]) << 8 | buff[5];
+			return (ExtensionType)rawType;
 		}
 
 		public Task ActivateMotionPlusAsync(CancellationToken ct)
