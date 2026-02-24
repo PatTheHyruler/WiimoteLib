@@ -175,7 +175,7 @@ namespace WiimoteLib
 		/// Is an extension controller inserted?
 		/// </summary>
 		[DataMember]
-		public bool Extension;
+		public bool ExtensionConnected;
 		/// <summary>
 		/// Extension controller currently inserted, if any
 		/// </summary>
@@ -762,6 +762,18 @@ namespace WiimoteLib
 	{
 		[DataMember]
 		public MotionPlusStatus Status;
+
+		/// <summary>
+		/// Is an extension controller inserted into the MotionPlus extension port?
+		/// </summary>
+		[DataMember]
+		public bool ExtensionConnected;
+
+		/// <summary>
+		/// Extension controller currently inserted into the MotionPlus extension port, if any
+		/// </summary>
+		[DataMember]
+		public ExtensionType ExtensionType;
 	}
 
 	public enum MotionPlusStatus

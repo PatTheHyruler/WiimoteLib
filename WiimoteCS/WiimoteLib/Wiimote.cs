@@ -146,6 +146,17 @@ namespace WiimoteLib
 		/// </summary>
 		public void Disconnect()
 		{
+			if (mWiimoteState.MotionPlusState.Status is not MotionPlusStatus.None)
+			{
+				try
+				{
+					DeactivateMotionPlusAsync(CancellationToken.None).GetAwaiter().GetResult();
+				}
+				catch (Exception ex)
+				{
+					Console.WriteLine($"Failed to deactivate MotionPlus when disposing Wiimote: {ex}");
+				}
+			}
 			_hidStream?.Dispose();
 			_hidStream = null;
 		}
@@ -157,6 +168,18 @@ namespace WiimoteLib
 		{
 			if (_hidStream is not null)
 			{
+				if (mWiimoteState.MotionPlusState.Status is not MotionPlusStatus.None)
+				{
+					try
+					{
+						// TODO: Handle the error that happens on extension initialization if this wasn't done for some reason
+						await DeactivateMotionPlusAsync(CancellationToken.None);
+					}
+					catch (Exception ex)
+					{
+						Console.WriteLine($"Failed to deactivate MotionPlus when disposing Wiimote: {ex}");
+					}
+				}
 				await _hidStream.DisposeAsync();
 				_hidStream = null;
 			}
@@ -213,6 +236,8 @@ namespace WiimoteLib
 		{
 			InputReport type = (InputReport)buff[0];
 
+			Console.WriteLine(string.Join(" ", buff.Select(b => b.ToString("X").PadLeft(2, '0'))));
+
 			switch(type)
 			{
 				case InputReport.Buttons:
@@ -261,9 +286,9 @@ namespace WiimoteLib
 					bool extension = (buff[3] & 0x02) != 0;
 					Debug.WriteLine("Extension: " + extension);
 
-					if (mWiimoteState.Extension != extension)
+					if (mWiimoteState.ExtensionConnected != extension)
 					{
-						mWiimoteState.Extension = extension;
+						mWiimoteState.ExtensionConnected = extension;
 
 						if (extension)
 						{
@@ -279,7 +304,7 @@ namespace WiimoteLib
 						if (WiimoteExtensionChanged != null &&
 						    mWiimoteState.ExtensionType != ExtensionType.BalanceBoard)
 						{
-							WiimoteExtensionChanged(this, new WiimoteExtensionChangedEventArgs(mWiimoteState.ExtensionType, mWiimoteState.Extension));
+							WiimoteExtensionChanged(this, new WiimoteExtensionChangedEventArgs(mWiimoteState.ExtensionType, mWiimoteState.ExtensionConnected));
 						}
 					}
 					mStatusDone.Set();
@@ -305,6 +330,10 @@ namespace WiimoteLib
 		/// </summary>
 		private void InitializeExtension()
 		{
+			var extensionIdentifierBufferAtStart = ReadData(REGISTER_EXTENSION_TYPE, 6);
+
+			Console.WriteLine(nameof(extensionIdentifierBufferAtStart) + " " + string.Join(' ', extensionIdentifierBufferAtStart.Select(b => b.ToString("X").PadLeft(2, '0'))));
+
 			// TODO: Avoid this weird split initialization logic
 			// TODO: Handle MotionPlus + other extension
 			if (mWiimoteState.MotionPlusState.Status is
@@ -334,7 +363,7 @@ namespace WiimoteLib
 			{
 				case ExtensionType.None:
 				case ExtensionType.PartiallyInserted:
-					mWiimoteState.Extension = false;
+					mWiimoteState.ExtensionConnected = false;
 					mWiimoteState.ExtensionType = ExtensionType.None;
 					return;
 				case ExtensionType.Nunchuk:
@@ -424,7 +453,16 @@ namespace WiimoteLib
 
 		public Task ActivateMotionPlusAsync(MotionPlusPassthroughMode mode, CancellationToken ct)
 		{
-			mWiimoteState.MotionPlusState.Status = MotionPlusStatus.Activated; // TODO: This should be set later, from status report?
+			// TODO: Is this still allowed for changing passthrough mode, and should be a no-op otherwise?
+			if (mWiimoteState.MotionPlusState.Status is not MotionPlusStatus.None)
+			{
+				throw new InvalidOperationException($"Cannot activate MotionPlus, status is already {mWiimoteState.MotionPlusState.Status}");
+			}
+
+			mWiimoteState.MotionPlusState.Status =
+				mWiimoteState.ExtensionConnected || mWiimoteState.MotionPlusState.ExtensionConnected
+					? MotionPlusStatus.Activated
+					: MotionPlusStatus.ActivationRequested;
 			return WriteDataAsync(address: 0x04a600fe, (byte)mode, ct);
 		}
 
@@ -592,8 +630,16 @@ namespace WiimoteLib
 					YawSlowMode = (buff[3] & 0b00000010) >> 1,
 					PitchSlowMode = buff[3] & 0b00000001,
 					RollSlowMode = (buff[4] & 0b00000010) >> 1,
-					ExtensionConnected = buff[4] & 0b00000001,
+					ExtensionConnectedRaw = buff[4] & 0b00000001,
+					ExtensionConnected = (buff[4] & 0b00000001) == 1,
 				};
+
+				if (parsedMotionPlus.ExtensionConnected != mWiimoteState.MotionPlusState.ExtensionConnected)
+				{
+					mWiimoteState.MotionPlusState.ExtensionConnected = parsedMotionPlus.ExtensionConnected;
+					InitializeExtension();
+				}
+
 				Console.WriteLine(parsedMotionPlus);
 
 				return; // TODO: Handle interleaving with other extensions etc
