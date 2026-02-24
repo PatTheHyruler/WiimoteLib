@@ -1,6 +1,5 @@
 <Solution>
   <Project Path="ConsoleTest/ConsoleTest.csproj" />
   <Project Path="WiimoteLib/WiimoteLib.csproj" />
-  <Project Path="WiimoteLib2/WiimoteLib2.csproj" />
   <Project Path="WiimoteTest/WiimoteTest.csproj" />
 </Solution>

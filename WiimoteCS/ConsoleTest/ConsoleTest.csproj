@@ -12,7 +12,7 @@
     </ItemGroup>
 
     <ItemGroup>
-      <ProjectReference Include="..\WiimoteLib2\WiimoteLib2.csproj" />
+      <ProjectReference Include="..\WiimoteLib\WiimoteLib.csproj" />
     </ItemGroup>
 
 </Project>
