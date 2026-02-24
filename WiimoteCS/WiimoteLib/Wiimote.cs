@@ -97,7 +97,7 @@ namespace WiimoteLib
 		// kilograms to pounds
 		private const float KG2LB = 2.20462262f;
 
-		private CancellationToken _continuousReadCancellationToken = CancellationToken.None;
+		private CancellationToken _cancellationToken = CancellationToken.None;
 
 		/// <summary>
 		/// Connect to the first-found Wiimote
@@ -105,7 +105,7 @@ namespace WiimoteLib
 		/// <exception cref="WiimoteNotFoundException">Wiimote not found in HID device list</exception>
 		public void Connect(CancellationToken ct = default)
 		{
-			_continuousReadCancellationToken = ct;
+			_cancellationToken = ct;
 
 			_hidStream = _hidDevice.Open();
 			_hidStream.ReadTimeout = 10_000;
@@ -190,7 +190,7 @@ namespace WiimoteLib
 		/// </summary>
 		private void BeginAsyncRead()
 		{
-			if (_hidStream is null || !_hidStream.CanRead || _continuousReadCancellationToken.IsCancellationRequested)
+			if (_hidStream is null || !_hidStream.CanRead || _cancellationToken.IsCancellationRequested)
 			{
 				return;
 			}
@@ -293,7 +293,7 @@ namespace WiimoteLib
 						if (extension)
 						{
 							BeginAsyncRead();
-							InitializeExtension();
+							InitializeExtensionAsync(_cancellationToken).GetAwaiter().GetResult(); // TODO: async
 						}
 						else
 						{
@@ -328,9 +328,9 @@ namespace WiimoteLib
 		/// <summary>
 		/// Handles setting up an extension when plugged in
 		/// </summary>
-		private void InitializeExtension()
+		private async Task InitializeExtensionAsync(CancellationToken ct = default)
 		{
-			var extensionIdentifierBufferAtStart = ReadData(REGISTER_EXTENSION_TYPE, 6);
+			var extensionIdentifierBufferAtStart = await ReadDataAsync(REGISTER_EXTENSION_TYPE, 6, ct);
 
 			Console.WriteLine(nameof(extensionIdentifierBufferAtStart) + " " + string.Join(' ', extensionIdentifierBufferAtStart.Select(b => b.ToString("X").PadLeft(2, '0'))));
 
@@ -339,7 +339,7 @@ namespace WiimoteLib
 			if (mWiimoteState.MotionPlusState.Status is
 			    MotionPlusStatus.Activated or MotionPlusStatus.ActivationRequested)
 			{
-				var extensionIdentifierBuffer = ReadData(REGISTER_EXTENSION_TYPE, 6);
+				var extensionIdentifierBuffer = await ReadDataAsync(REGISTER_EXTENSION_TYPE, 6, ct);
 				var extensionType = ((long)extensionIdentifierBuffer[0] << 40) | ((long)extensionIdentifierBuffer[1] << 32) |
 				                    ((long)extensionIdentifierBuffer[2]) << 24 | ((long)extensionIdentifierBuffer[3]) << 16 |
 				                    ((long)extensionIdentifierBuffer[4]) << 8 | extensionIdentifierBuffer[5];
@@ -350,13 +350,13 @@ namespace WiimoteLib
 				return;
 			}
 
-			WriteData(REGISTER_EXTENSION_INIT_1, 0x55);
-			WriteData(REGISTER_EXTENSION_INIT_2, 0x00);
+			await WriteDataAsync(REGISTER_EXTENSION_INIT_1, 0x55, ct);
+			await WriteDataAsync(REGISTER_EXTENSION_INIT_2, 0x00, ct);
 
 			// start reading again
 			BeginAsyncRead();
 
-			byte[] buff = ReadData(REGISTER_EXTENSION_TYPE, 6);
+			byte[] buff = await ReadDataAsync(REGISTER_EXTENSION_TYPE, 6, ct);
 			long type = ((long)buff[0] << 40) | ((long)buff[1] << 32) | ((long)buff[2]) << 24 | ((long)buff[3]) << 16 | ((long)buff[4]) << 8 | buff[5];
 
 			switch((ExtensionType)type)
@@ -372,7 +372,7 @@ namespace WiimoteLib
 				case ExtensionType.BalanceBoard:
 				case ExtensionType.Drums:
 					mWiimoteState.ExtensionType = (ExtensionType)type;
-					this.SetReportType(InputReport.ButtonsExtension, true);
+					await SetReportTypeAsync(InputReport.ButtonsExtension, true, ct);
 					break;
 				default:
 					throw new WiimoteException("Unknown extension controller found: " + type.ToString("x"));
@@ -381,7 +381,7 @@ namespace WiimoteLib
 			switch(mWiimoteState.ExtensionType)
 			{
 				case ExtensionType.Nunchuk:
-					buff = ReadData(REGISTER_EXTENSION_CALIBRATION, 16);
+					buff = await ReadDataAsync(REGISTER_EXTENSION_CALIBRATION, 16, ct);
 
 					mWiimoteState.NunchukState.CalibrationInfo.AccelCalibration.X0 = buff[0];
 					mWiimoteState.NunchukState.CalibrationInfo.AccelCalibration.Y0 = buff[1];
@@ -397,7 +397,7 @@ namespace WiimoteLib
 					mWiimoteState.NunchukState.CalibrationInfo.MidY = buff[13];
 					break;
 				case ExtensionType.ClassicController:
-					buff = ReadData(REGISTER_EXTENSION_CALIBRATION, 16);
+					buff = await ReadDataAsync(REGISTER_EXTENSION_CALIBRATION, 16, ct);
 
 					mWiimoteState.ClassicControllerState.CalibrationInfo.MaxXL = (byte)(buff[0] >> 2);
 					mWiimoteState.ClassicControllerState.CalibrationInfo.MinXL = (byte)(buff[1] >> 2);
@@ -428,7 +428,7 @@ namespace WiimoteLib
 					// there appears to be no calibration data returned by the guitar controller
 					break;
 				case ExtensionType.BalanceBoard:
-					buff = ReadData(REGISTER_EXTENSION_CALIBRATION, 32);
+					buff = await ReadDataAsync(REGISTER_EXTENSION_CALIBRATION, 32, ct);
 
 					mWiimoteState.BalanceBoardState.CalibrationInfo.Kg0.TopRight =		(short)((short)buff[4] << 8 | buff[5]);
 					mWiimoteState.BalanceBoardState.CalibrationInfo.Kg0.BottomRight =	(short)((short)buff[6] << 8 | buff[7]);
@@ -637,7 +637,7 @@ namespace WiimoteLib
 				if (parsedMotionPlus.ExtensionConnected != mWiimoteState.MotionPlusState.ExtensionConnected)
 				{
 					mWiimoteState.MotionPlusState.ExtensionConnected = parsedMotionPlus.ExtensionConnected;
-					InitializeExtension();
+					InitializeExtensionAsync(_cancellationToken).GetAwaiter().GetResult(); // TODO: async
 				}
 
 				Console.WriteLine(parsedMotionPlus);
