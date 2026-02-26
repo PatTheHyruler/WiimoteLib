@@ -108,8 +108,8 @@ namespace WiimoteLib
 			_cancellationToken = ct;
 
 			_hidStream = _hidDevice.Open();
-			_hidStream.ReadTimeout = 10_000; // TODO: Should set this to infinite?
-			_hidStream.WriteTimeout = 10_000;
+			_hidStream.ReadTimeout = Timeout.Infinite;
+			_hidStream.WriteTimeout = 3_000;
 
 			BeginAsyncRead();
 
