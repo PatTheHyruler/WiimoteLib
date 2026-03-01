@@ -236,7 +236,7 @@ namespace WiimoteLib
 		{
 			InputReport type = (InputReport)buff[0];
 
-			Console.WriteLine(string.Join(" ", buff.Select(b => b.ToString("X").PadLeft(2, '0'))));
+			Console.WriteLine($"{mWiimoteState.ExtensionConnected}, {mWiimoteState.MotionPlusState.Status}, {mWiimoteState.ExtensionType}, {mWiimoteState.MotionPlusState.ExtensionType} " + string.Join(" ", buff.Select(b => b.ToString("X").PadLeft(2, '0'))));
 
 			switch(type)
 			{
@@ -330,6 +330,7 @@ namespace WiimoteLib
 		/// </summary>
 		private async Task InitializeExtensionAsync(CancellationToken ct = default)
 		{
+			Console.WriteLine("InitializeExtensionAsync");
 			var extensionIdentifierBufferAtStart = await ReadDataAsync(REGISTER_EXTENSION_TYPE, 6, ct);
 
 			Console.WriteLine(nameof(extensionIdentifierBufferAtStart) + " " + string.Join(' ', extensionIdentifierBufferAtStart.Select(b => b.ToString("X").PadLeft(2, '0'))));
@@ -340,9 +341,10 @@ namespace WiimoteLib
 			    MotionPlusStatus.Activated or MotionPlusStatus.ActivationRequested)
 			{
 				var extensionTypeInner = await ReadExtensionTypeAsync(ct);
-				if (extensionTypeInner is ExtensionType.MotionPlus)
+				if (extensionTypeInner is ExtensionType.MotionPlus or ExtensionType.MotionPlus2)
 				{
 					mWiimoteState.ExtensionType = ExtensionType.MotionPlus;
+					mWiimoteState.MotionPlusState.Status = MotionPlusStatus.Activated;
 				}
 				return;
 			}

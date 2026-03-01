@@ -822,6 +822,10 @@ namespace WiimoteLib
 		/// </remarks>
 		MotionPlus          = 0x0000a4200405,
 		/// <summary>
+		/// ??? TODO find out what this is
+		/// </summary>
+		MotionPlus2          = 0x0100a4200405,
+		/// <summary>
 		/// Partially inserted extension.  This is an error condition.
 		/// </summary>
 		PartiallyInserted	= 0xffffffffffff,
