@@ -72,6 +72,7 @@ namespace WiimoteLib
 		private readonly WiimoteState mWiimoteState = new WiimoteState();
 
 		// data read fields
+		private readonly SemaphoreSlim dataReadSemaphore = new(initialCount: 1, maxCount: 1);
 		private TaskCompletionSource<byte[]>? dataReadTaskCompletionSource;
 		private byte[] dataReadResultBuffer;
 		private short dataReadRequestedSize;
@@ -1292,36 +1293,45 @@ namespace WiimoteLib
 		/// <returns>Data buffer</returns>
 		public async Task<byte[]> ReadDataAsync(int address, short size, CancellationToken ct = default)
 		{
-			var previousCompletionSource = Interlocked.CompareExchange(ref dataReadTaskCompletionSource, new(), null);
-			if (previousCompletionSource is not null)
-			{
-				throw new InvalidOperationException("Can't read data while a previous data read is ongoing");
-			}
-
-			ClearReport();
-
-			dataReadResultBuffer = new byte[size];
-			dataReadAddress = address & 0xffff;
-			dataReadRequestedSize = size;
-
-			mBuff[0] = (byte)OutputReport.ReadMemory;
-			mBuff[1] = (byte)(((address & 0xff000000) >> 24) | GetRumbleBit());
-			mBuff[2] = (byte)((address & 0x00ff0000)  >> 16);
-			mBuff[3] = (byte)((address & 0x0000ff00)  >>  8);
-			mBuff[4] = (byte)(address & 0x000000ff);
-
-			mBuff[5] = (byte)((size & 0xff00) >> 8);
-			mBuff[6] = (byte)(size & 0xff);
-
-			await WriteReportAsync(ct);
-
+			await dataReadSemaphore.WaitAsync(ct);
 			try
 			{
-				return await dataReadTaskCompletionSource.Task;
+				var previousCompletionSource =
+					Interlocked.CompareExchange(ref dataReadTaskCompletionSource, new(), null);
+				if (previousCompletionSource is not null)
+				{
+					throw new InvalidOperationException("Can't read data while a previous data read is ongoing");
+				}
+
+				ClearReport();
+
+				dataReadResultBuffer = new byte[size];
+				dataReadAddress = address & 0xffff;
+				dataReadRequestedSize = size;
+
+				mBuff[0] = (byte)OutputReport.ReadMemory;
+				mBuff[1] = (byte)(((address & 0xff000000) >> 24) | GetRumbleBit());
+				mBuff[2] = (byte)((address & 0x00ff0000) >> 16);
+				mBuff[3] = (byte)((address & 0x0000ff00) >> 8);
+				mBuff[4] = (byte)(address & 0x000000ff);
+
+				mBuff[5] = (byte)((size & 0xff00) >> 8);
+				mBuff[6] = (byte)(size & 0xff);
+
+				await WriteReportAsync(ct);
+
+				try
+				{
+					return await dataReadTaskCompletionSource.Task;
+				}
+				finally
+				{
+					dataReadTaskCompletionSource = null;
+				}
 			}
 			finally
 			{
-				dataReadTaskCompletionSource = null;
+				dataReadSemaphore.Release();
 			}
 		}
 
