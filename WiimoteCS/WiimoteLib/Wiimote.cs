@@ -652,7 +652,10 @@ namespace WiimoteLib
 				if (parsedMotionPlus.ExtensionConnected != mWiimoteState.MotionPlusState.ExtensionConnected)
 				{
 					mWiimoteState.MotionPlusState.ExtensionConnected = parsedMotionPlus.ExtensionConnected;
-					InitializeExtensionAsync(_cancellationToken).GetAwaiter().GetResult(); // TODO: async
+					if (parsedMotionPlus.ExtensionConnected)
+					{
+						InitializeExtensionAsync(_cancellationToken).GetAwaiter().GetResult(); // TODO: async
+					}
 				}
 
 				Console.WriteLine(parsedMotionPlus);
