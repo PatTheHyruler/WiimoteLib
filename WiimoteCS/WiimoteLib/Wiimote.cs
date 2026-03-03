@@ -104,7 +104,7 @@ namespace WiimoteLib
 		/// Connect to the first-found Wiimote
 		/// </summary>
 		/// <exception cref="WiimoteNotFoundException">Wiimote not found in HID device list</exception>
-		public void Connect(CancellationToken ct = default)
+		public async Task ConnectAsync(CancellationToken ct = default)
 		{
 			_cancellationToken = ct;
 
@@ -116,18 +116,18 @@ namespace WiimoteLib
 
 			try
 			{
-				ReadWiimoteCalibration();
+				await ReadWiimoteCalibrationAsync(ct);
 			}
 			catch
 			{
 				throw; // TODO: Support the alternative write method?
 				// if we fail above, try the alternate HID writes
 				mAltWriteMethod = true;
-				ReadWiimoteCalibration();
+				await ReadWiimoteCalibrationAsync(ct);
 			}
 
 			// force a status check to get the state of any extensions plugged in at startup
-			GetStatus();
+			await GetStatusAsync(ct);
 		}
 
 		private static bool IsWiimote(HIDImports.HIDD_ATTRIBUTES attrib)
@@ -972,10 +972,10 @@ namespace WiimoteLib
 		/// <summary>
 		/// Read calibration information stored on Wiimote
 		/// </summary>
-		private void ReadWiimoteCalibration()
+		private async Task ReadWiimoteCalibrationAsync(CancellationToken ct = default)
 		{
 			// this appears to change the report type to 0x31
-			byte[] buff = ReadData(0x0016, 7);
+			byte[] buff = await ReadDataAsync(0x0016, 7, ct);
 
 			mWiimoteState.AccelCalibrationInfo.X0 = buff[0];
 			mWiimoteState.AccelCalibrationInfo.Y0 = buff[1];
@@ -1125,14 +1125,14 @@ namespace WiimoteLib
 		/// <summary>
 		/// Retrieve the current status of the Wiimote and extensions.  Replaces GetBatteryLevel() since it was poorly named.
 		/// </summary>
-		public void GetStatus()
+		public async Task GetStatusAsync(CancellationToken ct = default)
 		{
 			ClearReport();
 
 			mBuff[0] = (byte)OutputReport.Status;
 			mBuff[1] = GetRumbleBit();
 
-			WriteReport();
+			await WriteReportAsync(ct);
 
 			// signal the status report finished
 			if(!mStatusDone.WaitOne(3000, false))

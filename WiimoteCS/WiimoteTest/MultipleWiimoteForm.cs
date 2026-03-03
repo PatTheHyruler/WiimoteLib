@@ -16,7 +16,7 @@ namespace WiimoteTest
 			InitializeComponent();
 		}
 
-		private void MultipleWiimoteForm_Load(object sender, EventArgs e)
+		private async void MultipleWiimoteForm_Load(object sender, EventArgs e)
 		{
 			// find all wiimotes connected to the system
 			int index = 1;
@@ -55,10 +55,10 @@ namespace WiimoteTest
 				wm.WiimoteChanged += wm_WiimoteChanged;
 				wm.WiimoteExtensionChanged += wm_WiimoteExtensionChanged;
 
-				wm.Connect();
+				await wm.ConnectAsync();
 				if(wm.WiimoteState.ExtensionType != ExtensionType.BalanceBoard)
 					wm.SetReportType(InputReport.IRExtensionAccel, IRSensitivity.Maximum, true);
-				
+
 				wm.SetLEDs(index++);
 			}
 		}
@@ -84,7 +84,7 @@ namespace WiimoteTest
 		private void MultipleWiimoteForm_FormClosing(object sender, FormClosingEventArgs e)
 		{
 			foreach(Wiimote wm in mWC)
-				wm.Disconnect();
+				wm.Dispose();
 		}
 	}
 }

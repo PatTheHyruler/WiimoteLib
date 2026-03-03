@@ -17,7 +17,7 @@ if (device is null)
 }
 
 await using var wiimote = new Wiimote(device);
-wiimote.Connect(ct);
+await wiimote.ConnectAsync(ct);
 
 await wiimote.SetReportTypeAsync(InputReport.ButtonsWith8ExtensionBytes, false, ct);
 

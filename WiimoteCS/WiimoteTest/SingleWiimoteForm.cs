@@ -23,7 +23,7 @@ namespace WiimoteTest
 			InitializeComponent();
 		}
 
-		private void Form1_Load(object sender, EventArgs e)
+		private async void Form1_Load(object sender, EventArgs e)
 		{
 			var hidDevice = Wiimote.FindWiimoteHidDevices().First();
 			wm = new Wiimote(hidDevice);
@@ -32,7 +32,7 @@ namespace WiimoteTest
 
 			wm.WiimoteChanged += wm_WiimoteChanged;
 			wm.WiimoteExtensionChanged += wm_WiimoteExtensionChanged;
-			wm.Connect();
+			await wm.ConnectAsync();
 			wm.SetReportType(InputReport.IRAccel, true);
 			wm.SetLEDs(false, true, true, false);
 		}
@@ -54,7 +54,7 @@ namespace WiimoteTest
 
 		private void Form1_FormClosing(object sender, FormClosingEventArgs e)
 		{
-			wm?.Disconnect();
+			wm?.Dispose();
 		}
 	}
 }
