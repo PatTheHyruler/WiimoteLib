@@ -34,6 +34,10 @@ while (!ct.IsCancellationRequested)
         {
             await wiimote.DeactivateMotionPlusAsync(ct);
         }
+        if (key.Key == ConsoleKey.R)
+        {
+            await wiimote.SetReportTypeAsync(InputReport.ButtonsWith8ExtensionBytes, true, ct);
+        }
     }
 }
 

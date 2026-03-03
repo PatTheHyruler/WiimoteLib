@@ -347,6 +347,7 @@ namespace WiimoteLib
 					mWiimoteState.ExtensionType = extensionTypeInner;
 					mWiimoteState.MotionPlusState.Status = MotionPlusStatus.Activated;
 				}
+				Console.WriteLine(new { extensionTypeInner, mWiimoteState.ExtensionType, mWiimoteState.MotionPlusState.Status });
 				return;
 			}
 
