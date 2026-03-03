@@ -817,14 +817,11 @@ namespace WiimoteLib
 		/// <summary>
 		/// Wii MotionPlus
 		/// </summary>
-		/// <remarks>
-		/// This can be active simultaneously with other extensions and is handled separately.
-		/// </remarks>
 		MotionPlus          = 0x0000a4200405,
 		/// <summary>
-		/// ??? TODO find out what this is
+		/// Wii MotionPlus Inside
 		/// </summary>
-		MotionPlus2          = 0x0100a4200405,
+		MotionPlusInside    = 0x0100a4200405,
 		/// <summary>
 		/// Partially inserted extension.  This is an error condition.
 		/// </summary>

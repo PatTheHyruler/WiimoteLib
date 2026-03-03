@@ -342,9 +342,9 @@ namespace WiimoteLib
 			    MotionPlusStatus.Activated or MotionPlusStatus.ActivationRequested)
 			{
 				var extensionTypeInner = await ReadExtensionTypeAsync(ct);
-				if (extensionTypeInner is ExtensionType.MotionPlus or ExtensionType.MotionPlus2)
+				if (extensionTypeInner is ExtensionType.MotionPlus or ExtensionType.MotionPlusInside)
 				{
-					mWiimoteState.ExtensionType = ExtensionType.MotionPlus;
+					mWiimoteState.ExtensionType = extensionTypeInner;
 					mWiimoteState.MotionPlusState.Status = MotionPlusStatus.Activated;
 				}
 				return;
