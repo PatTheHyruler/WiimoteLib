@@ -774,6 +774,14 @@ namespace WiimoteLib
 		/// </summary>
 		[DataMember]
 		public ExtensionType ExtensionType;
+
+		/// <summary>
+		/// Calibration info for MotionPlus read from the device.
+		/// <br />
+		/// I'm not fully sure how it actually relates to the data in MotionPlus reports.
+		/// </summary>
+		[DataMember]
+		public MotionPlusRawCalibrationInfo RawCalibrationInfo;
 	}
 
 	public enum MotionPlusStatus

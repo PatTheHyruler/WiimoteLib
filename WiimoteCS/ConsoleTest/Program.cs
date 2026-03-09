@@ -26,17 +26,20 @@ while (!ct.IsCancellationRequested)
     if (Console.KeyAvailable)
     {
         var key = Console.ReadKey(true);
-        if (key.Key == ConsoleKey.M)
+        switch (key.Key)
         {
-            await wiimote.ActivateMotionPlusAsync(ct);
-        }
-        if (key.Key == ConsoleKey.D)
-        {
-            await wiimote.DeactivateMotionPlusAsync(ct);
-        }
-        if (key.Key == ConsoleKey.R)
-        {
-            await wiimote.SetReportTypeAsync(InputReport.ButtonsWith8ExtensionBytes, true, ct);
+            case ConsoleKey.M:
+                await wiimote.ActivateMotionPlusAsync(ct);
+                break;
+            case ConsoleKey.D:
+                await wiimote.DeactivateMotionPlusAsync(ct);
+                break;
+            case ConsoleKey.R:
+                await wiimote.SetReportTypeAsync(InputReport.ButtonsWith8ExtensionBytes, true, ct);
+                break;
+            case ConsoleKey.A:
+                await wiimote.ReadMotionPlusCalibrationAsync(ct);
+                break;
         }
     }
 }

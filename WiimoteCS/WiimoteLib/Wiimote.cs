@@ -478,6 +478,7 @@ namespace WiimoteLib
 				mWiimoteState.ExtensionConnected || mWiimoteState.MotionPlusState.ExtensionConnected
 					? MotionPlusStatus.Activated
 					: MotionPlusStatus.ActivationRequested;
+
 			return WriteDataAsync(address: 0x04a600fe, (byte)mode, ct);
 		}
 
@@ -485,6 +486,41 @@ namespace WiimoteLib
 		{
 			mWiimoteState.MotionPlusState.Status = MotionPlusStatus.None; // TODO: This should be set later, from status report?
 			return WriteDataAsync(address: 0x04a400f0, 0x55, ct);
+		}
+
+		public async Task ReadMotionPlusCalibrationAsync(CancellationToken ct)
+		{
+			var buff = await ReadDataAsync(address: 0x04a60020, size: 32, ct);
+
+			var parsedCalibrationInfo = new MotionPlusRawCalibrationInfo
+			{
+				FastMode = new()
+				{
+					YawZeroValue = (UInt16)(buff[0] << 8 | buff[1]),
+					RollZeroValue = (UInt16)(buff[2] << 8 | buff[3]),
+					PitchZeroValue = (UInt16)(buff[4] << 8 | buff[5]),
+					YawScaleValue = (UInt16)(buff[6] << 8 | buff[7]),
+					RollScaleValue = (UInt16)(buff[8] << 8 | buff[9]),
+					PitchScaleValue = (UInt16)(buff[10] << 8 | buff[11]),
+					DegreesDiv6 = buff[12],
+				},
+				Uid1 = buff[13],
+				Crc32HashOfMsb = (UInt16)(buff[14] << 8 | buff[15]),
+				SlowMode = new()
+				{
+					YawZeroValue = (UInt16)(buff[16] << 8 | buff[17]),
+					RollZeroValue = (UInt16)(buff[18] << 8 | buff[19]),
+					PitchZeroValue = (UInt16)(buff[20] << 8 | buff[21]),
+					YawScaleValue = (UInt16)(buff[22] << 8 | buff[23]),
+					RollScaleValue = (UInt16)(buff[24] << 8 | buff[25]),
+					PitchScaleValue = (UInt16)(buff[26] << 8 | buff[27]),
+					DegreesDiv6 = buff[28],
+				},
+				Uid2 = buff[29],
+				Crc32HashOfLsb = (UInt16)(buff[30] << 8 | buff[31]),
+			};
+
+			mWiimoteState.MotionPlusState.RawCalibrationInfo = parsedCalibrationInfo;
 		}
 
 		/// <summary>
