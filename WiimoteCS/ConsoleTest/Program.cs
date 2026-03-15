@@ -40,6 +40,16 @@ while (!ct.IsCancellationRequested)
             case ConsoleKey.A:
                 await wiimote.ReadMotionPlusCalibrationAsync(ct);
                 break;
+            case ConsoleKey.C:
+                if (wiimote.WiimoteState.MotionPlusState.CalibrationState.IsCalibrating)
+                {
+                    wiimote.FinishMotionPlusCalibration();
+                }
+                else
+                {
+                    wiimote.StartMotionPlusCalibration();
+                }
+                break;
         }
     }
 }

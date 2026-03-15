@@ -237,7 +237,7 @@ namespace WiimoteLib
 		{
 			InputReport type = (InputReport)buff[0];
 
-			Console.WriteLine($"{mWiimoteState.ExtensionConnected}, {mWiimoteState.MotionPlusState.Status}, {mWiimoteState.ExtensionType}, {mWiimoteState.MotionPlusState.ExtensionType} " + string.Join(" ", buff.Select(b => b.ToString("X").PadLeft(2, '0'))));
+			Console.WriteLine($"{mWiimoteState.ExtensionConnected}, {mWiimoteState.MotionPlusState.Status}, {mWiimoteState.ExtensionType} " + string.Join(" ", buff.Select(b => b.ToString("X").PadLeft(2, '0'))));
 
 			switch(type)
 			{
@@ -474,6 +474,7 @@ namespace WiimoteLib
 				throw new InvalidOperationException($"Cannot activate MotionPlus, status is already {mWiimoteState.MotionPlusState.Status}");
 			}
 
+			mWiimoteState.MotionPlusState.Initialize();
 			mWiimoteState.MotionPlusState.Status =
 				mWiimoteState.ExtensionConnected || mWiimoteState.MotionPlusState.ExtensionConnected
 					? MotionPlusStatus.Activated
@@ -492,7 +493,7 @@ namespace WiimoteLib
 		{
 			var buff = await ReadDataAsync(address: 0x04a60020, size: 32, ct);
 
-			var parsedCalibrationInfo = new MotionPlusRawCalibrationInfo
+			var parsedCalibrationInfo = new MotionPlusFactoryCalibrationInfo
 			{
 				FastMode = new()
 				{
@@ -520,7 +521,7 @@ namespace WiimoteLib
 				Crc32HashOfLsb = (UInt16)(buff[30] << 8 | buff[31]),
 			};
 
-			mWiimoteState.MotionPlusState.RawCalibrationInfo = parsedCalibrationInfo;
+			mWiimoteState.MotionPlusState.FactoryCalibrationInfo = parsedCalibrationInfo;
 		}
 
 		/// <summary>
@@ -667,34 +668,40 @@ namespace WiimoteLib
 					return;
 				}
 
-				var parsedMotionPlus = new
-				{
-					ParsedYawDown = ParseMotionPlusDegreeReport(speed1: buff[0], speed2: buff[3]),
-					ParsedRollLeft = ParseMotionPlusDegreeReport(speed1: buff[1], speed2: buff[4]),
-					ParsedPitchLeft = ParseMotionPlusDegreeReport(speed1: buff[2], speed2: buff[5]),
-					// YawDownSpeed = buff[0].ToString("b8"),
-					// YawDownSpeed2 = (buff[3] & 0b11111100).ToString("b8"),
-					// RollLeftSpeed = buff[1].ToString("b8"),
-					// RollLeftSpeed2 = (buff[4] & 0b11111100).ToString("b8"),
-					// PitchLeftSpeed = buff[2].ToString("b8"),
-					// PitchLeftSpeed2 = (buff[5] & 0b11111100).ToString("b8"),
-					YawSlowMode = (buff[3] & 0b00000010) >> 1,
-					PitchSlowMode = buff[3] & 0b00000001,
-					RollSlowMode = (buff[4] & 0b00000010) >> 1,
-					ExtensionConnectedRaw = buff[4] & 0b00000001,
-					ExtensionConnected = (buff[4] & 0b00000001) == 1,
-				};
+				ref var rawData = ref mWiimoteState.MotionPlusState.RawData;
+				rawData.YawDown = ParseMotionPlusDegreeReport(speed1: buff[0], speed2: buff[3]);
+				rawData.RollLeft = ParseMotionPlusDegreeReport(speed1: buff[1], speed2: buff[4]);
+				rawData.PitchLeft = ParseMotionPlusDegreeReport(speed1: buff[2], speed2: buff[5]);
+				rawData.YawSlowMode = (buff[3] & 0b00000010) >> 1 != 0;
+				rawData.PitchSlowMode = (buff[3] & 0b00000001) != 0;
+				rawData.RollSlowMode = (buff[4] & 0b00000010) >> 1 != 0;
 
-				if (parsedMotionPlus.ExtensionConnected != mWiimoteState.MotionPlusState.ExtensionConnected)
+				mWiimoteState.MotionPlusState.ProcessRawData();
+
+				if (mWiimoteState.MotionPlusState.CalibrationState.IsCalibrating)
 				{
-					mWiimoteState.MotionPlusState.ExtensionConnected = parsedMotionPlus.ExtensionConnected;
-					if (parsedMotionPlus.ExtensionConnected)
+					mWiimoteState.MotionPlusState.CalibrationState.AddDataPoint(rawData);
+				}
+
+				var extensionConnected = (buff[4] & 0b00000001) == 1;
+
+				if (extensionConnected != mWiimoteState.MotionPlusState.ExtensionConnected)
+				{
+					mWiimoteState.MotionPlusState.ExtensionConnected = extensionConnected;
+					if (extensionConnected)
 					{
 						InitializeExtensionAsync(_cancellationToken).GetAwaiter().GetResult(); // TODO: async
 					}
 				}
 
-				Console.WriteLine(parsedMotionPlus);
+				Console.WriteLine(mWiimoteState.MotionPlusState.RawData);
+				Console.WriteLine(new
+				{
+					YawDown = mWiimoteState.MotionPlusState.YawDown.ToString().PadLeft(10, ' '),
+					RollLeft = mWiimoteState.MotionPlusState.RollLeft.ToString().PadLeft(10, ' '),
+					PitchLeft = mWiimoteState.MotionPlusState.PitchLeft.ToString().PadLeft(10, ' '),
+				});
+				Console.WriteLine(mWiimoteState.MotionPlusState.CalibrationState);
 
 				return; // TODO: Handle interleaving with other extensions etc
 			}
@@ -998,6 +1005,21 @@ namespace WiimoteLib
 			{
 				dataReadTaskCompletionSource.SetResult(dataReadResultBuffer);
 			}
+		}
+
+		public void StartMotionPlusCalibration()
+		{
+			if (mWiimoteState.MotionPlusState.Status is not MotionPlusStatus.Activated)
+			{
+				throw new InvalidOperationException("Can't calibrate MotionPlus when MotionPlus isn't activated");
+			}
+
+			mWiimoteState.MotionPlusState.CalibrationState.StartCalibration();
+		}
+
+		public void FinishMotionPlusCalibration()
+		{
+			mWiimoteState.MotionPlusState.CalibrationState.FinishCalibration();
 		}
 
 		/// <summary>

@@ -758,38 +758,11 @@ namespace WiimoteLib
 		public bool A, B, Plus, Home, Minus, One, Two, Up, Down, Left, Right;
 	}
 
-	public struct MotionPlusState
-	{
-		[DataMember]
-		public MotionPlusStatus Status;
-
-		/// <summary>
-		/// Is an extension controller inserted into the MotionPlus extension port?
-		/// </summary>
-		[DataMember]
-		public bool ExtensionConnected;
-
-		/// <summary>
-		/// Extension controller currently inserted into the MotionPlus extension port, if any
-		/// </summary>
-		[DataMember]
-		public ExtensionType ExtensionType;
-
-		/// <summary>
-		/// Calibration info for MotionPlus read from the device.
-		/// <br />
-		/// I'm not fully sure how it actually relates to the data in MotionPlus reports.
-		/// </summary>
-		[DataMember]
-		public MotionPlusRawCalibrationInfo RawCalibrationInfo;
-	}
-
 	public enum MotionPlusStatus
 	{
 		None,
 		ActivationRequested,
 		Activated,
-		DeactivationRequested,
 	}
 
 	/// <summary>
