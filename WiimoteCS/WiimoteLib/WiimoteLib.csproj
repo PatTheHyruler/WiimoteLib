@@ -7,7 +7,7 @@
     <ProjectGuid>{37A555DF-7012-4B99-8A47-1C922A361E52}</ProjectGuid>
     <OutputType>Library</OutputType>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
-    <Version>1.0.0-mp-dev1</Version>
+    <Version>1.0.0-mp-dev2</Version>
   </PropertyGroup>
 
   <ItemGroup>

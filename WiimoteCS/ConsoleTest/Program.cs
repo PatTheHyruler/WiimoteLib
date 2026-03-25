@@ -35,7 +35,7 @@ while (!ct.IsCancellationRequested)
                 await wiimote.DeactivateMotionPlusAsync(ct);
                 break;
             case ConsoleKey.R:
-                await wiimote.SetReportTypeAsync(InputReport.ButtonsWith8ExtensionBytes, true, ct);
+                await wiimote.SetReportTypeAsync(InputReport.ExtensionAccel, true, ct);
                 break;
             case ConsoleKey.A:
                 await wiimote.ReadMotionPlusCalibrationAsync(ct);

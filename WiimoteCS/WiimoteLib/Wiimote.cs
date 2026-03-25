@@ -237,8 +237,6 @@ namespace WiimoteLib
 		{
 			InputReport type = (InputReport)buff[0];
 
-			Console.WriteLine($"{mWiimoteState.ExtensionConnected}, {mWiimoteState.MotionPlusState.Status}, {mWiimoteState.ExtensionType} " + string.Join(" ", buff.Select(b => b.ToString("X").PadLeft(2, '0'))));
-
 			switch(type)
 			{
 				case InputReport.Buttons:
@@ -693,15 +691,6 @@ namespace WiimoteLib
 						InitializeExtensionAsync(_cancellationToken).GetAwaiter().GetResult(); // TODO: async
 					}
 				}
-
-				Console.WriteLine(mWiimoteState.MotionPlusState.RawData);
-				Console.WriteLine(new
-				{
-					YawDown = mWiimoteState.MotionPlusState.YawDown.ToString().PadLeft(10, ' '),
-					RollLeft = mWiimoteState.MotionPlusState.RollLeft.ToString().PadLeft(10, ' '),
-					PitchLeft = mWiimoteState.MotionPlusState.PitchLeft.ToString().PadLeft(10, ' '),
-				});
-				Console.WriteLine(mWiimoteState.MotionPlusState.CalibrationState);
 
 				return; // TODO: Handle interleaving with other extensions etc
 			}
